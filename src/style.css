@@ -29,22 +29,34 @@ body,
   font-family: var(--font-body);
 }
 
+#app {
+  position: relative;
+}
+
 canvas {
   display: block;
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
+  z-index: 0;
+  touch-action: none;
 }
 
 #ui {
-  position: fixed;
+  position: absolute;
   inset: 0;
   pointer-events: none;
-  z-index: 10;
+  z-index: 100;
 }
 
-#ui .panel,
 #ui button,
-#ui .mode-bar {
+#ui .mode-bar,
+#ui .overlay,
+#ui .overlay-card,
+#ui .overlay-actions,
+#ui .help,
+#ui .hud {
   pointer-events: auto;
 }
 
@@ -216,7 +228,7 @@ canvas {
     radial-gradient(ellipse at 30% 20%, rgba(225, 6, 0, 0.18), transparent 45%),
     radial-gradient(ellipse at 70% 80%, rgba(0, 210, 190, 0.12), transparent 40%),
     rgba(4, 5, 8, 0.78);
-  pointer-events: auto;
+  pointer-events: none;
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.35s ease, visibility 0.35s ease;
@@ -225,6 +237,7 @@ canvas {
 .overlay.visible {
   opacity: 1;
   visibility: visible;
+  pointer-events: auto;
 }
 
 .overlay-card {

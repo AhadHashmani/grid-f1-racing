@@ -39,6 +39,8 @@ export class Game {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.domElement.style.zIndex = "0";
+    this.renderer.domElement.style.position = "absolute";
     container.appendChild(this.renderer.domElement);
 
     this.chase = new ChaseCamera(container.clientWidth / container.clientHeight);
@@ -71,6 +73,8 @@ export class Game {
     });
 
     this.fitOverview();
+    this.editor.setEnabled(false);
+    this.renderer.domElement.style.pointerEvents = "none";
     this.hud.setMode("menu");
     this.tick();
   }
@@ -175,14 +179,19 @@ export class Game {
     this.sessionTime = 0;
     this.hud.hideOverlay();
     this.hud.setMode(mode);
-    this.editor.setEnabled(mode === "edit" || mode === "menu");
+    // Only allow track dragging in edit mode — never under the menu overlay
+    this.editor.setEnabled(mode === "edit");
+    this.renderer.domElement.style.pointerEvents = mode === "menu" ? "none" : "auto";
     this.clearCars();
     this.sensorGroup.clear();
     this.chase.reset();
 
     if (mode === "menu" || mode === "edit") {
       this.fitOverview();
-      if (mode === "menu") this.hud.setMode("menu");
+      if (mode === "menu") {
+        this.hud.setMode("menu");
+        this.renderer.domElement.style.pointerEvents = "none";
+      }
       return;
     }
 

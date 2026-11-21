@@ -19,12 +19,33 @@ export class Hud {
     this.root.id = "ui";
     parent.appendChild(this.root);
     this.renderShell();
+    this.root.addEventListener("click", this.onRootClick, true);
   }
 
   setHandlers(onMode: (mode: GameMode) => void, onAction: (action: string) => void) {
     this.onMode = onMode;
     this.onAction = onAction;
   }
+
+  private onRootClick = (event: MouseEvent) => {
+    const target = event.target as HTMLElement | null;
+    if (!target) return;
+
+    const actionBtn = target.closest<HTMLElement>("[data-action]");
+    if (actionBtn?.dataset.action) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.onAction?.(actionBtn.dataset.action);
+      return;
+    }
+
+    const modeBtn = target.closest<HTMLElement>("[data-mode]");
+    if (modeBtn?.dataset.mode) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.onMode?.(modeBtn.dataset.mode as GameMode);
+    }
+  };
 
   private renderShell() {
     this.root.innerHTML = `
@@ -34,10 +55,10 @@ export class Hud {
           <div class="brand-sub">F1 Neuro Racing</div>
         </div>
         <div class="mode-bar" id="mode-bar">
-          <button data-mode="edit">Edit Track</button>
-          <button data-mode="train">Train AI</button>
-          <button data-mode="watch">Watch Bot</button>
-          <button data-mode="race">Race Bot</button>
+          <button type="button" data-mode="edit">Edit Track</button>
+          <button type="button" data-mode="train">Train AI</button>
+          <button type="button" data-mode="watch">Watch Bot</button>
+          <button type="button" data-mode="race">Race Bot</button>
         </div>
       </div>
 
@@ -84,9 +105,9 @@ export class Hud {
             with ray sensors, then challenge it in third-person.
           </p>
           <div class="overlay-actions">
-            <button class="action-btn primary" data-action="start-edit">Build Track</button>
-            <button class="action-btn" data-action="start-train">Train AI</button>
-            <button class="action-btn ghost" data-action="start-race">Race Champion</button>
+            <button type="button" class="action-btn primary" data-action="start-edit">Build Track</button>
+            <button type="button" class="action-btn" data-action="start-train">Train AI</button>
+            <button type="button" class="action-btn ghost" data-action="start-race">Race Champion</button>
           </div>
         </div>
       </div>
@@ -103,11 +124,6 @@ export class Hud {
 
     this.root.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((btn) => {
       this.modeButtons[btn.dataset.mode!] = btn;
-      btn.addEventListener("click", () => this.onMode?.(btn.dataset.mode as GameMode));
-    });
-
-    this.root.querySelectorAll<HTMLButtonElement>("[data-action]").forEach((btn) => {
-      btn.addEventListener("click", () => this.onAction?.(btn.dataset.action!));
     });
   }
 
@@ -179,16 +195,13 @@ export class Hud {
           ${actions
             .map(
               (a) =>
-                `<button class="action-btn ${a.primary ? "primary" : ""}" data-action="${a.action}">${a.label}</button>`,
+                `<button type="button" class="action-btn ${a.primary ? "primary" : ""}" data-action="${a.action}">${a.label}</button>`,
             )
             .join("")}
         </div>
       </div>
     `;
     this.overlay.classList.add("visible");
-    this.overlay.querySelectorAll<HTMLButtonElement>("[data-action]").forEach((btn) => {
-      btn.addEventListener("click", () => this.onAction?.(btn.dataset.action!));
-    });
   }
 
   hideOverlay() {
