@@ -1,0 +1,335 @@
+:root {
+  --bg: #07080c;
+  --panel: rgba(10, 12, 18, 0.82);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --red: #e10600;
+  --red-glow: rgba(225, 6, 0, 0.45);
+  --white: #f4f4f6;
+  --muted: #9aa3b5;
+  --accent: #00d2be;
+  --amber: #ff8700;
+  --font-display: "Orbitron", sans-serif;
+  --font-body: "Rajdhani", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--white);
+  font-family: var(--font-body);
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+#ui {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+#ui .panel,
+#ui button,
+#ui .mode-bar {
+  pointer-events: auto;
+}
+
+.top-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 1.25rem;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.72), transparent);
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.brand-mark {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  letter-spacing: 0.18em;
+  line-height: 1;
+}
+
+.brand-mark span {
+  color: var(--red);
+}
+
+.brand-sub {
+  font-size: 0.85rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.mode-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: flex-end;
+}
+
+.mode-bar button,
+.action-btn {
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  color: var(--white);
+  padding: 0.65rem 0.9rem;
+  border-radius: 2px;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  transition: border-color 0.2s, background 0.2s, transform 0.15s, box-shadow 0.2s;
+}
+
+.mode-bar button:hover,
+.action-btn:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+  transform: translateY(-1px);
+}
+
+.mode-bar button.active {
+  background: var(--red);
+  border-color: var(--red);
+  box-shadow: 0 0 24px var(--red-glow);
+}
+
+.hud {
+  position: absolute;
+  left: 1.25rem;
+  bottom: 1.25rem;
+  display: grid;
+  gap: 0.55rem;
+  min-width: min(280px, calc(100vw - 2.5rem));
+}
+
+.hud-card {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-left: 3px solid var(--red);
+  backdrop-filter: blur(12px);
+  padding: 0.85rem 1rem;
+  border-radius: 2px;
+}
+
+.hud-label {
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  letter-spacing: 0.18em;
+  color: var(--muted);
+  margin-bottom: 0.2rem;
+}
+
+.hud-value {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.hud-value.accent {
+  color: var(--accent);
+}
+
+.hud-value.amber {
+  color: var(--amber);
+}
+
+.help {
+  position: absolute;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  max-width: min(320px, calc(100vw - 2.5rem));
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  backdrop-filter: blur(12px);
+  padding: 0.9rem 1rem;
+  border-radius: 2px;
+}
+
+.help h3 {
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  margin-bottom: 0.45rem;
+  color: var(--accent);
+}
+
+.help p,
+.help li {
+  font-size: 0.95rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.help ul {
+  list-style: none;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.help kbd {
+  display: inline-block;
+  min-width: 1.4rem;
+  padding: 0.05rem 0.35rem;
+  margin-right: 0.15rem;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 3px;
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  color: var(--white);
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(225, 6, 0, 0.18), transparent 45%),
+    radial-gradient(ellipse at 70% 80%, rgba(0, 210, 190, 0.12), transparent 40%),
+    rgba(4, 5, 8, 0.78);
+  pointer-events: auto;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.35s ease, visibility 0.35s ease;
+}
+
+.overlay.visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.overlay-card {
+  width: min(520px, calc(100vw - 2rem));
+  background: rgba(8, 10, 16, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 2rem 1.6rem;
+  text-align: center;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+}
+
+.overlay-card h1 {
+  font-family: var(--font-display);
+  font-size: clamp(1.8rem, 5vw, 2.6rem);
+  letter-spacing: 0.14em;
+  margin-bottom: 0.5rem;
+}
+
+.overlay-card h1 span {
+  color: var(--red);
+}
+
+.overlay-card p {
+  color: var(--muted);
+  font-size: 1.05rem;
+  margin-bottom: 1.4rem;
+  line-height: 1.4;
+}
+
+.overlay-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  justify-content: center;
+}
+
+.action-btn.primary {
+  background: var(--red);
+  border-color: var(--red);
+  box-shadow: 0 0 28px var(--red-glow);
+}
+
+.action-btn.ghost {
+  background: transparent;
+}
+
+.speedo {
+  position: absolute;
+  left: 50%;
+  bottom: 1.1rem;
+  transform: translateX(-50%);
+  text-align: center;
+  font-family: var(--font-display);
+  pointer-events: none;
+}
+
+.speedo .num {
+  font-size: clamp(2rem, 5vw, 3.2rem);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1;
+}
+
+.speedo .unit {
+  font-size: 0.7rem;
+  letter-spacing: 0.24em;
+  color: var(--muted);
+}
+
+.race-banner {
+  position: absolute;
+  top: 5.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-display);
+  font-size: clamp(1.1rem, 3vw, 1.6rem);
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--white);
+  text-shadow: 0 0 30px var(--red-glow);
+  opacity: 0;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: none;
+}
+
+.race-banner.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+@media (max-width: 760px) {
+  .top-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .mode-bar {
+    justify-content: flex-start;
+  }
+
+  .help {
+    display: none;
+  }
+
+  .hud {
+    bottom: 5.5rem;
+  }
+}
