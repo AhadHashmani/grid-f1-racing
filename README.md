@@ -25,14 +25,22 @@ Open the URL Vite prints (default `http://127.0.0.1:3847`).
 | --- | --- |
 | Drive | `W A S D` or arrow keys |
 | Stop training / watch champ | `Space` |
-| Edit track | Drag amber / teal spheres in **Edit Track** |
+| Edit track | Open **Edit Track**, then click-drag the orange balls (teal = start/finish) |
+
+## AI levels
+
+| Level | What changes |
+| --- | --- |
+| **Rookie** | Slower rival, 1 lap, you get a pace edge, lighter training swarm |
+| **Pro** | Even pace, 2 laps, standard training |
+| **Elite** | Faster rival, 3 laps, bigger swarm — aim for ~60 generations |
 
 ## Modes
 
-1. **Edit Track** — sculpt the spline circuit
+1. **Edit Track** — fixed top camera; drag orange nodes to reshape corners
 2. **Train AI** — evolve a population; champion brains save to `localStorage`
 3. **Watch Bot** — third-person view of the champion
-4. **Race Bot** — you (red) vs champion (teal), best of 2 laps
+4. **Race Bot** — you (red) vs champion (teal); lap count follows AI level
 
 ## Stack
 

@@ -52,11 +52,13 @@ canvas {
 
 #ui button,
 #ui .mode-bar,
+#ui .difficulty-bar,
 #ui .overlay,
 #ui .overlay-card,
 #ui .overlay-actions,
 #ui .help,
-#ui .hud {
+#ui .hud,
+#ui .edit-coach {
   pointer-events: auto;
 }
 
@@ -98,14 +100,33 @@ canvas {
   color: var(--muted);
 }
 
-.mode-bar {
+.top-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.55rem;
+}
+
+.mode-bar,
+.difficulty-bar {
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
   justify-content: flex-end;
+  align-items: center;
+}
+
+.diff-label {
+  font-family: var(--font-display);
+  font-size: 0.58rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 0.15rem;
 }
 
 .mode-bar button,
+.diff-btn,
 .action-btn {
   font-family: var(--font-display);
   font-size: 0.68rem;
@@ -121,7 +142,13 @@ canvas {
   transition: border-color 0.2s, background 0.2s, transform 0.15s, box-shadow 0.2s;
 }
 
+.diff-btn {
+  padding: 0.45rem 0.7rem;
+  font-size: 0.6rem;
+}
+
 .mode-bar button:hover,
+.diff-btn:hover,
 .action-btn:hover {
   border-color: rgba(255, 255, 255, 0.28);
   transform: translateY(-1px);
@@ -131,6 +158,87 @@ canvas {
   background: var(--red);
   border-color: var(--red);
   box-shadow: 0 0 24px var(--red-glow);
+}
+
+.diff-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #041512;
+  box-shadow: 0 0 18px rgba(0, 210, 190, 0.35);
+}
+
+.diff-blurb {
+  position: absolute;
+  top: 5.6rem;
+  right: 1.25rem;
+  max-width: min(420px, calc(100vw - 2.5rem));
+  font-size: 0.9rem;
+  line-height: 1.35;
+  color: var(--muted);
+  text-align: right;
+  pointer-events: none;
+}
+
+.overlay-diff {
+  justify-content: center;
+  margin: 0.4rem 0 0.6rem;
+}
+
+.overlay-diff-note {
+  font-size: 0.95rem !important;
+  margin-bottom: 1rem !important;
+  color: var(--accent) !important;
+}
+
+.edit-coach {
+  position: absolute;
+  left: 50%;
+  top: 5.8rem;
+  transform: translateX(-50%);
+  width: min(440px, calc(100vw - 2rem));
+  background: var(--panel);
+  border: 1px solid rgba(255, 135, 0, 0.35);
+  border-top: 3px solid var(--amber);
+  backdrop-filter: blur(12px);
+  padding: 1rem 1.1rem 1.05rem;
+  z-index: 5;
+}
+
+.edit-coach.hidden {
+  display: none;
+}
+
+.edit-coach-title {
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--amber);
+  margin-bottom: 0.55rem;
+}
+
+.edit-coach ol {
+  margin: 0 0 0.85rem 1.1rem;
+  display: grid;
+  gap: 0.3rem;
+  color: var(--muted);
+  font-size: 0.98rem;
+  line-height: 1.35;
+}
+
+.edit-coach strong {
+  color: var(--white);
+  font-weight: 600;
+}
+
+.edit-coach-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.mode-edit .help {
+  border-color: rgba(255, 135, 0, 0.3);
 }
 
 .hud {
@@ -334,8 +442,28 @@ canvas {
     align-items: stretch;
   }
 
-  .mode-bar {
+  .top-controls,
+  .mode-bar,
+  .difficulty-bar {
+    align-items: stretch;
     justify-content: flex-start;
+  }
+
+  .diff-blurb {
+    top: auto;
+    bottom: 11rem;
+    left: 1.25rem;
+    right: 1.25rem;
+    text-align: left;
+  }
+
+  .edit-coach {
+    top: auto;
+    bottom: 5.2rem;
+    left: 1rem;
+    right: 1rem;
+    transform: none;
+    width: auto;
   }
 
   .help {
@@ -343,6 +471,7 @@ canvas {
   }
 
   .hud {
-    bottom: 5.5rem;
+    bottom: auto;
+    top: 7.5rem;
   }
 }

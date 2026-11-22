@@ -7,6 +7,7 @@ import { Track } from "../track/Track";
 import { TrackEditor } from "../track/TrackEditor";
 import { DEFAULT_CONTROL_POINTS } from "../track/defaultTrack";
 import { Hud, type GameMode } from "../ui/Hud";
+import { DIFFICULTIES, type DifficultyId } from "./difficulty";
 
 export class Game {
   private renderer: THREE.WebGLRenderer;
@@ -30,6 +31,7 @@ export class Game {
   private overviewCenter = new THREE.Vector3(0, 0, 0);
   private anim = 0;
   private container: HTMLElement;
+  private difficulty: DifficultyId = "pro";
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -53,7 +55,9 @@ export class Game {
     this.editor = new TrackEditor(this.scene, this.chase.camera, this.track, this.renderer.domElement);
     this.editor.setOnChange(() => {
       this.checkpoints = this.track.getCheckpointProgresses(16);
+      // Recenter quietly; keep edit camera locked (no orbit)
       this.fitOverview();
+      if (this.mode === "edit") this.setEditCamera();
     });
     this.trainer = new Trainer(this.track);
     this.checkpoints = this.track.getCheckpointProgresses(16);
@@ -62,7 +66,9 @@ export class Game {
     this.hud.setHandlers(
       (mode) => this.setMode(mode),
       (action) => this.handleAction(action),
+      (id) => this.setDifficulty(id),
     );
+    this.setDifficulty("pro");
 
     window.addEventListener("resize", () => this.onResize());
     window.addEventListener("keydown", (e) => {
@@ -150,6 +156,14 @@ export class Game {
     this.chase.setOrbitOverview(this.overviewCenter, 100, 82);
   }
 
+  private setDifficulty(id: DifficultyId) {
+    this.difficulty = id;
+    const cfg = DIFFICULTIES[id];
+    this.trainer.applyDifficulty(cfg);
+    this.raceLaps = cfg.raceLaps;
+    this.hud.setDifficulty(id);
+  }
+
   private handleAction(action: string) {
     switch (action) {
       case "start-edit":
@@ -170,7 +184,25 @@ export class Game {
       case "watch-champ":
         this.setMode("watch");
         break;
+      case "reset-track":
+        this.editor.resetToDefault(DEFAULT_CONTROL_POINTS);
+        this.checkpoints = this.track.getCheckpointProgresses(16);
+        this.fitOverview();
+        this.setEditCamera();
+        this.hud.showBanner("TRACK RESET");
+        break;
     }
+  }
+
+  private setEditCamera() {
+    // Fixed high overview — no orbit while editing so raycasts stay stable
+    this.chase.camera.position.set(
+      this.overviewCenter.x,
+      110,
+      this.overviewCenter.z + 8,
+    );
+    this.chase.camera.lookAt(this.overviewCenter.x, 0, this.overviewCenter.z);
+    this.chase.camera.updateProjectionMatrix();
   }
 
   setMode(mode: GameMode) {
@@ -188,6 +220,10 @@ export class Game {
 
     if (mode === "menu" || mode === "edit") {
       this.fitOverview();
+      if (mode === "edit") {
+        this.setEditCamera();
+        this.hud.showBanner("DRAG THE ORANGE BALLS");
+      }
       if (mode === "menu") {
         this.hud.setMode("menu");
         this.renderer.domElement.style.pointerEvents = "none";
@@ -221,20 +257,30 @@ export class Game {
   }
 
   private startRace() {
+    const cfg = DIFFICULTIES[this.difficulty];
     let bot = this.trainer.loadChampionCar();
     const trained = bot != null;
     if (!bot) {
       bot = new Car(0x00d2be);
     }
 
-    this.player = new Car(0xe10600);
+    const baseMax = 28;
+    const baseRot = 2.4;
+    const baseAccel = 18;
+
+    this.player = new Car(0xe10600, baseMax * cfg.playerSpeedMult, baseRot, baseAccel);
     this.rival = bot.cloneBrainCar(0x00d2be);
+    this.rival.maxSpeed = baseMax * cfg.botSpeedMult;
+    this.rival.rotSpeed = baseRot * cfg.botSteerMult;
+    this.rival.acceleration = baseAccel * (0.9 + cfg.botSpeedMult * 0.1);
     this.player.reset(this.track, -1);
     this.rival.reset(this.track, 1);
+    this.raceLaps = cfg.raceLaps;
     this.carGroup.add(this.player.mesh, this.rival.mesh);
     this.chase.reset();
     this.chase.update(this.player, 1);
-    this.hud.showBanner(trained ? "LIGHTS OUT" : "UNTRAINED RIVAL");
+    const label = trained ? `LIGHTS OUT · ${cfg.label}` : `UNTRAINED · ${cfg.label}`;
+    this.hud.showBanner(label);
   }
 
   private clearCars() {
@@ -266,8 +312,11 @@ export class Game {
     this.anim += dt;
     this.sessionTime += dt;
 
-    if (this.mode === "edit" || this.mode === "menu") {
-      // Slow orbit for atmosphere
+    if (this.mode === "edit") {
+      this.setEditCamera();
+      this.editor.updateVisuals(this.anim);
+    } else if (this.mode === "menu") {
+      // Slow orbit for atmosphere on the menu only
       const r = 100;
       const t = this.anim * 0.12;
       this.chase.camera.position.set(

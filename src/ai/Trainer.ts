@@ -1,3 +1,4 @@
+import type { DifficultyConfig } from "../game/difficulty";
 import { Car } from "../car/Car";
 import type { Track } from "../track/Track";
 import { getMutation, NeuralNetwork } from "./Network";
@@ -20,6 +21,7 @@ export class Trainer {
   population = 24;
   maxFrames = 2800;
   maxLaps = 1;
+  mutationBoost = 0;
   training = true;
   champion: Car | null = null;
   private colors = [0xe10600, 0x00d2be, 0xff8700, 0x3b82f6, 0xa855f7, 0xf43f5e, 0x22c55e, 0xeab308];
@@ -27,6 +29,12 @@ export class Trainer {
 
   constructor(track: Track) {
     this.track = track;
+  }
+
+  applyDifficulty(cfg: DifficultyConfig) {
+    this.population = cfg.population;
+    this.maxFrames = cfg.maxFrames;
+    this.mutationBoost = cfg.mutationBoost;
   }
 
   startFresh() {
@@ -81,7 +89,7 @@ export class Trainer {
       this.spawnRandom();
       return;
     }
-    const mutation = getMutation(this.generation);
+    const mutation = Math.max(0.02, getMutation(this.generation) + this.mutationBoost);
     this.cars = [];
     for (let i = 0; i < this.population; i++) {
       const car = this.champion.cloneBrainCar(this.colors[i % this.colors.length]);
