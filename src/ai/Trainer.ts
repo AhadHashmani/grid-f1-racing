@@ -1,76 +1,79 @@
 import type { DifficultyConfig } from "../game/difficulty";
-import { Car } from "../car/Car";
-import type { Track } from "../track/Track";
-import { getMutation, NeuralNetwork } from "./Network";
+import { FastBrain } from "../sim/FastBrain";
+import { FastTrack } from "../sim/FastTrack";
+import { FastTrainer } from "../sim/FastTrainer";
+import type { ControlPoint } from "../track/Track";
 
-const SAVE_KEY = "grid-f1-champion-v1";
+const SAVE_KEY = "grid-f1-champion-v2";
 
 export type ChampionSave = {
-  brain: ReturnType<NeuralNetwork["toJSON"]>;
+  brain: ReturnType<FastBrain["toJSON"]>;
   generation: number;
   bestScore: number;
-  bestLapTime: number | null;
   trackHash?: string;
 };
 
 export class Trainer {
-  cars: Car[] = [];
   generation = 1;
   bestScore = 0;
   bestLapTime: number | null = null;
-  frame = 0;
-  population = 28;
-  maxFrames = 3200;
-  maxLaps = 1;
-  mutationBoost = 0;
   training = true;
-  champion: Car | null = null;
   trackHash = "";
-  private colors = [0xe10600, 0x00d2be, 0xff8700, 0x3b82f6, 0xa855f7, 0xf43f5e, 0x22c55e, 0xeab308];
-  private track: Track;
-  private stagnantGens = 0;
-
-  constructor(track: Track) {
-    this.track = track;
-  }
+  champion: FastBrain | null = null;
+  fast: FastTrainer | null = null;
+  private population = 36;
+  private maxFrames = 1200;
 
   applyDifficulty(cfg: DifficultyConfig) {
-    this.population = Math.max(cfg.population, 24);
-    this.maxFrames = Math.max(cfg.maxFrames, 3000);
-    this.mutationBoost = cfg.mutationBoost;
+    this.population = Math.max(32, cfg.population + 8);
+    this.maxFrames = Math.min(1400, Math.max(900, cfg.maxFrames / 2));
   }
 
   setTrackHash(hash: string) {
     this.trackHash = hash;
   }
 
-  startFresh() {
+  ensureFast(points: ControlPoint[], width: number) {
+    const ft = new FastTrack(points, width);
+    this.fast = new FastTrainer(ft, this.population, this.maxFrames);
+    if (this.champion) this.fast.champion = this.champion.clone();
+    return this.fast;
+  }
+
+  startFresh(points: ControlPoint[], width: number) {
     localStorage.removeItem(SAVE_KEY);
     this.generation = 1;
     this.bestScore = 0;
     this.bestLapTime = null;
-    this.frame = 0;
-    this.stagnantGens = 0;
-    this.training = true;
     this.champion = null;
-    this.spawnRandom();
+    this.training = true;
+    this.ensureFast(points, width);
+    this.fast!.startFresh();
+    this.syncStats();
   }
 
-  /** After a track edit, old champions are useless — always retrain from scratch. */
-  startForCurrentTrack(hash: string, forceFresh = false) {
+  startForCurrentTrack(points: ControlPoint[], width: number, hash: string, forceFresh = false) {
     this.trackHash = hash;
     const saved = this.peekSave();
     const sameTrack = saved?.trackHash != null && saved.trackHash === hash;
+    this.ensureFast(points, width);
 
-    if (forceFresh || !sameTrack) {
-      this.startFresh();
+    if (forceFresh || !sameTrack || !saved) {
+      this.startFresh(points, width);
       return;
     }
 
-    if (this.tryLoadChampion()) {
-      this.continueFromChampion();
-    } else {
-      this.startFresh();
+    try {
+      this.champion = FastBrain.fromJSON(saved.brain);
+      this.generation = saved.generation;
+      this.bestScore = saved.bestScore;
+      this.fast!.champion = this.champion.clone();
+      this.fast!.generation = this.generation;
+      this.fast!.bestScore = this.bestScore;
+      this.fast!.resetPopulation(true);
+      this.training = true;
+    } catch {
+      this.startFresh(points, width);
     }
   }
 
@@ -84,157 +87,55 @@ export class Trainer {
     }
   }
 
-  tryLoadChampion(): boolean {
-    const car = this.loadChampionCar();
-    return car != null;
-  }
-
-  continueFromChampion() {
-    if (!this.champion && !this.tryLoadChampion()) {
-      this.startFresh();
-      return;
+  /** Run several full generations quickly (call from the train loop). */
+  turboStep(gens = 2): { success: boolean; generation: number; bestScore: number } {
+    if (!this.fast) return { success: false, generation: this.generation, bestScore: this.bestScore };
+    let success = false;
+    for (let i = 0; i < gens; i++) {
+      const r = this.fast.runGeneration();
+      if (r.laps >= 1) success = true;
     }
-    this.training = true;
-    this.frame = 0;
-    this.spawnFromChampion();
+    this.syncStats();
+    if (this.champion) this.persist();
+    return { success, generation: this.generation, bestScore: this.bestScore };
   }
 
-  watchChampion() {
-    if (!this.champion && !this.tryLoadChampion()) {
-      this.startFresh();
-      return;
-    }
-    this.training = false;
-    this.frame = 0;
-    const champ = this.champion!.cloneBrainCar(0xe10600);
-    champ.reset(this.track, 0);
-    this.cars = [champ];
+  /** Block until a lap is learned (usually under a second). */
+  quickTrain(): { success: boolean; generations: number; ms: number } {
+    if (!this.fast) return { success: false, generations: 0, ms: 0 };
+    const r = this.fast.trainUntilLap(30);
+    this.syncStats();
+    if (r.success) this.persist();
+    return r;
   }
 
-  spawnRandom() {
-    this.cars = [];
-    for (let i = 0; i < this.population; i++) {
-      // Slightly slower + sharper steering makes curvy edited tracks learnable
-      const car = new Car(this.colors[i % this.colors.length], 20 + Math.random() * 4, 3.0 + Math.random() * 0.4, 15);
-      car.reset(this.track, (i % 5) - 2);
-      this.cars.push(car);
-    }
+  private syncStats() {
+    if (!this.fast) return;
+    this.generation = this.fast.generation;
+    this.bestScore = this.fast.bestScore;
+    this.champion = this.fast.champion ? this.fast.champion.clone() : null;
   }
 
-  spawnFromChampion() {
-    if (!this.champion) {
-      this.spawnRandom();
-      return;
-    }
-    let mutation = Math.max(0.04, getMutation(this.generation) + this.mutationBoost);
-    // If stuck improving, inject bigger mutations + some fresh randoms
-    if (this.stagnantGens >= 4) mutation = Math.min(0.45, mutation + 0.12);
-
-    this.cars = [];
-    const randomSlots = this.stagnantGens >= 4 ? Math.ceil(this.population * 0.25) : Math.ceil(this.population * 0.1);
-
-    for (let i = 0; i < this.population; i++) {
-      if (i >= this.population - randomSlots) {
-        const car = new Car(this.colors[i % this.colors.length], 20 + Math.random() * 4, 3.1, 15);
-        car.reset(this.track, (i % 5) - 2);
-        this.cars.push(car);
-        continue;
-      }
-      const car = this.champion.cloneBrainCar(this.colors[i % this.colors.length]);
-      if (i > 0) {
-        // Varied mutation strength across the swarm
-        const amount = i < 3 ? mutation * 0.35 : i < this.population * 0.5 ? mutation : mutation * 1.4;
-        car.brain.mutate(amount);
-      }
-      car.reset(this.track, (i % 5) - 2);
-      this.cars.push(car);
-    }
+  persist() {
+    if (!this.champion) return;
+    const payload: ChampionSave = {
+      brain: this.champion.toJSON(),
+      generation: this.generation,
+      bestScore: this.bestScore,
+      trackHash: this.trackHash,
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
   }
 
-  getAliveCount() {
-    return this.cars.filter((c) => c.alive).length;
-  }
-
-  getChampionCandidate(): Car {
-    return [...this.cars].sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      return a.frameOfLastCp - b.frameOfLastCp;
-    })[0];
-  }
-
-  generationOver(checkpoints: number[]): boolean {
-    if (this.cars.every((c) => !c.alive)) return true;
-    if (this.frame >= this.maxFrames) return true;
-    if (this.cars.some((c) => c.lapCount >= this.maxLaps)) return true;
-    if (this.training && this.cars.some((c) => c.score >= checkpoints.length + 1.5)) return true;
-    return false;
-  }
-
-  endGeneration(fps: number) {
-    const champ = this.getChampionCandidate();
-    const prevBest = this.bestScore;
-    this.champion = champ.cloneBrainCar(0xe10600);
-
-    let lapTime: number | null = null;
-    if (champ.lapCount >= this.maxLaps) {
-      lapTime = this.frame / fps;
-    }
-
-    if (champ.score > 0) {
-      this.saveChampion(champ, lapTime);
-    }
-
-    if (champ.score <= prevBest + 0.05) this.stagnantGens += 1;
-    else this.stagnantGens = 0;
-
-    this.generation += 1;
-    this.frame = 0;
-
-    if (champ.score < 0.15) {
-      this.spawnRandom();
-    } else {
-      this.spawnFromChampion();
-    }
-  }
-
-  saveChampion(car: Car, lapTime: number | null) {
-    const improvedScore = car.score > this.bestScore + 0.001;
-    const improvedTime =
-      lapTime != null && (this.bestLapTime == null || lapTime < this.bestLapTime);
-
-    if (improvedScore || improvedTime || this.bestScore === 0) {
-      if (improvedScore) this.bestScore = car.score;
-      if (improvedTime && lapTime != null) this.bestLapTime = lapTime;
-      if (lapTime != null && this.bestLapTime == null) this.bestLapTime = lapTime;
-
-      const payload: ChampionSave = {
-        brain: car.brain.toJSON(),
-        generation: this.generation,
-        bestScore: this.bestScore,
-        bestLapTime: this.bestLapTime,
-        trackHash: this.trackHash,
-      };
-      localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
-      this.champion = car.cloneBrainCar(0xe10600);
-    }
-  }
-
-  loadChampionCar(): Car | null {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return null;
+  loadChampionBrain(): FastBrain | null {
+    const saved = this.peekSave();
+    if (!saved) return null;
+    if (saved.trackHash && this.trackHash && saved.trackHash !== this.trackHash) return null;
     try {
-      const data = JSON.parse(raw) as ChampionSave;
-      // Reject brains trained on a different layout
-      if (data.trackHash && this.trackHash && data.trackHash !== this.trackHash) {
-        return null;
-      }
-      const car = new Car(0xe10600);
-      car.brain = NeuralNetwork.fromJSON(data.brain);
-      this.bestScore = data.bestScore;
-      this.bestLapTime = data.bestLapTime;
-      this.generation = data.generation;
-      this.champion = car;
-      return car;
+      this.champion = FastBrain.fromJSON(saved.brain);
+      this.generation = saved.generation;
+      this.bestScore = saved.bestScore;
+      return this.champion;
     } catch {
       return null;
     }
@@ -245,5 +146,9 @@ export class Trainer {
     if (!saved) return false;
     if (saved.trackHash && this.trackHash && saved.trackHash !== this.trackHash) return false;
     return true;
+  }
+
+  getAliveCount(): number {
+    return this.fast?.agents.filter((a) => a.alive).length ?? 0;
   }
 }

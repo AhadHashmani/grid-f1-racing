@@ -126,7 +126,6 @@ export class Car {
     const right = (outputs[2] ?? 0) > 0.45;
     const backward = (outputs[3] ?? 0) > 0.55;
 
-    // Bias: if the net is undecided, keep rolling forward so genes that steer can express
     const anySteer = left || right;
     this.applyControls(
       {
@@ -137,6 +136,22 @@ export class Car {
       },
       dt,
     );
+  }
+
+  /** Continuous controls from FastBrain: throttle 0..1, steer -1..1, brake 0..1 */
+  applyAnalog(throttle: number, steer: number, brake: number, dt: number) {
+    if (!this.alive) return;
+    if (brake > 0.6 && throttle < 0.4) {
+      this.speed = Math.max(0, this.speed - this.acceleration * 1.5 * dt);
+    } else {
+      this.speed = Math.min(this.maxSpeed, this.speed + this.acceleration * Math.max(0.12, throttle) * dt);
+      this.speed = Math.max(0, this.speed - this.acceleration * 0.08 * dt);
+    }
+    const steerFactor = 0.4 + 0.6 * Math.min(1, Math.abs(this.speed) / this.maxSpeed);
+    this.yaw += steer * this.rotSpeed * steerFactor * dt;
+    this.position.x += Math.sin(this.yaw) * this.speed * dt;
+    this.position.z += Math.cos(this.yaw) * this.speed * dt;
+    this.syncMesh();
   }
 
   updateRaceProgress(track: Track, checkpoints: number[], frame: number, training = false) {

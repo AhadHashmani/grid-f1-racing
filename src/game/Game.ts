@@ -1,8 +1,10 @@
 import * as THREE from "three";
+import { driveWithFastBrain } from "../ai/FastDriver";
 import { Trainer } from "../ai/Trainer";
 import { ChaseCamera } from "../camera/ChaseCamera";
 import { Car } from "../car/Car";
 import { Input } from "../input/Input";
+import type { FastBrain } from "../sim/FastBrain";
 import { Track } from "../track/Track";
 import { TrackEditor } from "../track/TrackEditor";
 import { DEFAULT_CONTROL_POINTS } from "../track/defaultTrack";
@@ -16,14 +18,18 @@ export class Game {
   private clock = new THREE.Clock();
   private track: Track;
   private editor: TrackEditor;
-  private trainer: Trainer;
+  private trainer = new Trainer();
   private input = new Input();
   private hud: Hud;
   private mode: GameMode = "menu";
   private carGroup = new THREE.Group();
   private sensorGroup = new THREE.Group();
+  private visualCars: Car[] = [];
   private player: Car | null = null;
   private rival: Car | null = null;
+  private rivalBrain: FastBrain | null = null;
+  private watchCar: Car | null = null;
+  private watchBrain: FastBrain | null = null;
   private checkpoints: number[] = [];
   private sessionTime = 0;
   private raceLaps = 2;
@@ -33,6 +39,7 @@ export class Game {
   private container: HTMLElement;
   private difficulty: DifficultyId = "pro";
   private trackDirty = false;
+  private colors = [0xe10600, 0x00d2be, 0xff8700, 0x3b82f6, 0xa855f7, 0xf43f5e, 0x22c55e, 0xeab308];
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -57,11 +64,9 @@ export class Game {
     this.editor.setOnChange(() => {
       this.checkpoints = this.track.getCheckpointProgresses();
       this.trackDirty = true;
-      // Recenter quietly; keep edit camera locked (no orbit)
       this.fitOverview();
       if (this.mode === "edit") this.setEditCamera();
     });
-    this.trainer = new Trainer(this.track);
     this.trainer.setTrackHash(this.track.hashLayout());
     this.checkpoints = this.track.getCheckpointProgresses();
 
@@ -109,18 +114,13 @@ export class Game {
 
     const ground = new THREE.Mesh(
       new THREE.CircleGeometry(180, 64),
-      new THREE.MeshStandardMaterial({
-        color: 0x152012,
-        roughness: 0.95,
-        metalness: 0.0,
-      }),
+      new THREE.MeshStandardMaterial({ color: 0x152012, roughness: 0.95, metalness: 0.0 }),
     );
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.02;
     ground.receiveShadow = true;
     this.scene.add(ground);
 
-    // Soft grandstand / light towers for F1 atmosphere
     const towerMat = new THREE.MeshStandardMaterial({ color: 0x2a3140, metalness: 0.4, roughness: 0.5 });
     for (let i = 0; i < 8; i++) {
       const ang = (i / 8) * Math.PI * 2;
@@ -128,13 +128,11 @@ export class Game {
       tower.position.set(Math.cos(ang) * 95, 9, Math.sin(ang) * 95);
       tower.castShadow = true;
       this.scene.add(tower);
-
       const lamp = new THREE.PointLight(0xffd9a8, 1.2, 55);
       lamp.position.set(Math.cos(ang) * 88, 16, Math.sin(ang) * 88);
       this.scene.add(lamp);
     }
 
-    // Distant hills
     const hillMat = new THREE.MeshStandardMaterial({ color: 0x101820, roughness: 1, metalness: 0 });
     for (let i = 0; i < 12; i++) {
       const hill = new THREE.Mesh(new THREE.SphereGeometry(18 + Math.random() * 20, 16, 12), hillMat);
@@ -196,27 +194,40 @@ export class Game {
         this.hud.showBanner("TRACK RESET");
         break;
       case "retrain-fresh":
-        this.trainer.setTrackHash(this.track.hashLayout());
-        this.trainer.startFresh();
-        this.trackDirty = false;
-        this.clearCars();
-        this.attachTrainerCars();
-        this.mode = "train";
-        this.hud.setMode("train");
+        this.beginTraining(true);
         this.hud.showBanner("FRESH TRAINING");
         break;
+      case "quick-train": {
+        this.beginTraining(this.trackDirty);
+        const r = this.trainer.quickTrain();
+        this.syncVisualFromFast();
+        this.hud.showBanner(
+          r.success ? `LEARNED IN ${r.generations} GEN · ${(r.ms / 1000).toFixed(1)}s` : "KEEP TRAINING",
+        );
+        if (r.success) this.setMode("watch");
+        break;
+      }
     }
   }
 
   private setEditCamera() {
-    // Fixed high overview — no orbit while editing so raycasts stay stable
-    this.chase.camera.position.set(
-      this.overviewCenter.x,
-      110,
-      this.overviewCenter.z + 8,
-    );
+    this.chase.camera.position.set(this.overviewCenter.x, 110, this.overviewCenter.z + 8);
     this.chase.camera.lookAt(this.overviewCenter.x, 0, this.overviewCenter.z);
     this.chase.camera.updateProjectionMatrix();
+  }
+
+  private beginTraining(forceFresh: boolean) {
+    const hash = this.track.hashLayout();
+    this.trainer.setTrackHash(hash);
+    this.trainer.startForCurrentTrack(this.track.controlPoints, this.track.width, hash, forceFresh);
+    this.trackDirty = false;
+    this.mode = "train";
+    this.hud.hideOverlay();
+    this.hud.setMode("train");
+    this.editor.setEnabled(false);
+    this.renderer.domElement.style.pointerEvents = "auto";
+    this.buildVisualSwarm();
+    this.fitOverview();
   }
 
   setMode(mode: GameMode) {
@@ -225,12 +236,14 @@ export class Game {
     this.sessionTime = 0;
     this.hud.hideOverlay();
     this.hud.setMode(mode);
-    // Only allow track dragging in edit mode — never under the menu overlay
     this.editor.setEnabled(mode === "edit");
     this.renderer.domElement.style.pointerEvents = mode === "menu" ? "none" : "auto";
     this.clearCars();
     this.sensorGroup.clear();
     this.chase.reset();
+    this.watchCar = null;
+    this.watchBrain = null;
+    this.rivalBrain = null;
 
     if (mode === "menu" || mode === "edit") {
       this.fitOverview();
@@ -246,39 +259,41 @@ export class Game {
     }
 
     if (mode === "train") {
-      const hash = this.track.hashLayout();
-      this.trainer.setTrackHash(hash);
-      // Edited layouts always start fresh — old brains can't transfer to new curves
-      this.trainer.startForCurrentTrack(hash, this.trackDirty);
-      this.trackDirty = false;
-      this.attachTrainerCars();
-      this.fitOverview();
-      this.hud.showBanner(this.trainer.generation <= 1 ? "FRESH TRAINING" : "TRAINING");
+      this.beginTraining(this.trackDirty);
+      // Instant first burst so the user sees a competent swarm quickly
+      const burst = this.trainer.turboStep(2);
+      this.syncVisualFromFast();
+      this.hud.showBanner(burst.success ? "LAP LEARNED" : "TURBO TRAINING");
       return;
     }
 
     if (mode === "watch") {
-      this.trainer.watchChampion();
-      this.attachTrainerCars();
-      const focus = this.trainer.cars[0];
-      if (focus) {
-        this.chase.update(focus, 1);
+      const brain = this.trainer.champion ?? this.trainer.loadChampionBrain();
+      if (!brain) {
+        this.beginTraining(true);
+        this.trainer.quickTrain();
       }
+      this.watchBrain = (this.trainer.champion ?? this.trainer.loadChampionBrain())!.clone();
+      this.watchCar = new Car(0xe10600);
+      this.watchCar.reset(this.track, 0);
+      this.carGroup.add(this.watchCar.mesh);
+      this.chase.update(this.watchCar, 1);
       this.hud.showBanner("CHAMPION");
       return;
     }
 
-    if (mode === "race") {
-      this.startRace();
-    }
+    if (mode === "race") this.startRace();
   }
 
   private startRace() {
     const cfg = DIFFICULTIES[this.difficulty];
-    let bot = this.trainer.loadChampionCar();
-    const trained = bot != null;
-    if (!bot) {
-      bot = new Car(0x00d2be);
+    this.trainer.setTrackHash(this.track.hashLayout());
+    let brain = this.trainer.champion ?? this.trainer.loadChampionBrain();
+    const trained = brain != null;
+    if (!brain) {
+      this.trainer.startForCurrentTrack(this.track.controlPoints, this.track.width, this.track.hashLayout(), true);
+      this.trainer.quickTrain();
+      brain = this.trainer.champion;
     }
 
     const baseMax = 24;
@@ -286,32 +301,49 @@ export class Game {
     const baseAccel = 16;
 
     this.player = new Car(0xe10600, baseMax * cfg.playerSpeedMult, baseRot, baseAccel);
-    this.rival = bot.cloneBrainCar(0x00d2be);
-    this.rival.maxSpeed = baseMax * cfg.botSpeedMult;
-    this.rival.rotSpeed = baseRot * cfg.botSteerMult;
-    this.rival.acceleration = baseAccel * (0.9 + cfg.botSpeedMult * 0.1);
+    this.rival = new Car(0x00d2be, baseMax * cfg.botSpeedMult, baseRot * cfg.botSteerMult, baseAccel);
+    this.rivalBrain = brain ? brain.clone() : null;
     this.player.reset(this.track, -1);
     this.rival.reset(this.track, 1);
     this.raceLaps = cfg.raceLaps;
     this.carGroup.add(this.player.mesh, this.rival.mesh);
     this.chase.reset();
     this.chase.update(this.player, 1);
-    const label = trained ? `LIGHTS OUT · ${cfg.label}` : `UNTRAINED · ${cfg.label}`;
-    this.hud.showBanner(label);
+    this.hud.showBanner(trained ? `LIGHTS OUT · ${cfg.label}` : `AUTO-TRAINED · ${cfg.label}`);
   }
 
   private clearCars() {
-    while (this.carGroup.children.length) {
-      this.carGroup.remove(this.carGroup.children[0]);
-    }
+    while (this.carGroup.children.length) this.carGroup.remove(this.carGroup.children[0]);
+    this.visualCars = [];
     this.player = null;
     this.rival = null;
   }
 
-  private attachTrainerCars() {
+  private buildVisualSwarm() {
     this.clearCars();
-    for (const car of this.trainer.cars) {
+    const n = Math.min(18, this.trainer.fast?.agents.length ?? 12);
+    for (let i = 0; i < n; i++) {
+      const car = new Car(this.colors[i % this.colors.length]);
+      car.reset(this.track, (i % 5) - 2);
+      this.visualCars.push(car);
       this.carGroup.add(car.mesh);
+    }
+    this.syncVisualFromFast();
+  }
+
+  private syncVisualFromFast() {
+    const agents = this.trainer.fast?.agents;
+    if (!agents) return;
+    for (let i = 0; i < this.visualCars.length; i++) {
+      const a = agents[i];
+      const car = this.visualCars[i];
+      if (!a) continue;
+      car.position.set(a.x, 0.35, a.z);
+      car.yaw = a.yaw;
+      car.speed = a.speed;
+      car.alive = a.alive;
+      car.setGhost(!a.alive);
+      car.syncMesh();
     }
   }
 
@@ -333,7 +365,6 @@ export class Game {
       this.setEditCamera();
       this.editor.updateVisuals(this.anim);
     } else if (this.mode === "menu") {
-      // Slow orbit for atmosphere on the menu only
       const r = 100;
       const t = this.anim * 0.12;
       this.chase.camera.position.set(
@@ -343,7 +374,7 @@ export class Game {
       );
       this.chase.camera.lookAt(this.overviewCenter);
     } else if (this.mode === "train") {
-      this.updateTraining(dt);
+      this.updateTraining();
       this.fitOverviewSoft();
     } else if (this.mode === "watch") {
       this.updateWatch(dt);
@@ -351,7 +382,6 @@ export class Game {
       this.updateRace(dt);
     }
 
-    this.drawSensors();
     this.updateHud();
     this.renderer.render(this.scene, this.chase.camera);
   };
@@ -367,43 +397,26 @@ export class Game {
     this.chase.camera.lookAt(this.overviewCenter);
   }
 
-  private updateTraining(dt: number) {
-    // Run several physics steps per frame so generations advance faster on hard tracks
-    const steps = 5;
-    const stepDt = Math.min(dt / 2, 0.02);
-    for (let s = 0; s < steps; s++) {
-      this.trainer.frame += 1;
-      for (const car of this.trainer.cars) {
-        if (!car.alive) continue;
-        car.sensor.update(this.track);
-        const outputs = car.brain.feedForward(car.sensor.readings);
-        car.applyAiOutputs(outputs, stepDt);
-        car.updateRaceProgress(this.track, this.checkpoints, this.trainer.frame, true);
-        car.checkStuck(this.trainer.frame, 480);
-      }
-
-      if (this.trainer.generationOver(this.checkpoints)) {
-        this.trainer.endGeneration(60);
-        this.attachTrainerCars();
-        break;
+  private updateTraining() {
+    // 2 full generations per frame ≈ learns a lap in about a second of wall time
+    const result = this.trainer.turboStep(2);
+    this.syncVisualFromFast();
+    if (result.success && this.sessionTime > 0.4) {
+      // Keep refining a bit, but banner once
+      if (Math.floor(this.sessionTime * 2) % 7 === 0) {
+        this.hud.showBanner(`LAP OK · GEN ${result.generation}`, 900);
       }
     }
   }
 
   private updateWatch(dt: number) {
-    const car = this.trainer.cars[0];
-    if (!car) return;
-    this.trainer.frame += 1;
-    car.sensor.update(this.track);
-    const outputs = car.brain.feedForward(car.sensor.readings);
-    car.applyAiOutputs(outputs, dt);
-    car.updateRaceProgress(this.track, this.checkpoints, this.trainer.frame, false);
-
-    if (!car.alive || car.lapCount >= 1 || this.trainer.frame > this.trainer.maxFrames) {
-      car.reset(this.track, 0);
-      this.trainer.frame = 0;
+    if (!this.watchCar || !this.watchBrain) return;
+    driveWithFastBrain(this.watchCar, this.watchBrain, this.track, dt);
+    this.watchCar.updateRaceProgress(this.track, this.checkpoints, Math.floor(this.sessionTime * 60), false);
+    if (!this.watchCar.alive || this.watchCar.lapCount >= 1) {
+      this.watchCar.reset(this.track, 0);
     }
-    this.chase.update(car, dt);
+    this.chase.update(this.watchCar, dt);
   }
 
   private updateRace(dt: number) {
@@ -413,10 +426,8 @@ export class Game {
     this.player.applyControls(controls, dt);
     this.player.updateRaceProgress(this.track, this.checkpoints, Math.floor(this.sessionTime * 60), false);
 
-    if (this.rival.alive) {
-      this.rival.sensor.update(this.track);
-      const outputs = this.rival.brain.feedForward(this.rival.sensor.readings);
-      this.rival.applyAiOutputs(outputs, dt);
+    if (this.rival.alive && this.rivalBrain) {
+      driveWithFastBrain(this.rival, this.rivalBrain, this.track, dt);
       this.rival.updateRaceProgress(this.track, this.checkpoints, Math.floor(this.sessionTime * 60), false);
     }
 
@@ -434,13 +445,14 @@ export class Game {
 
     if (this.player.lapCount >= this.raceLaps || this.rival.lapCount >= this.raceLaps) {
       this.finished = true;
-      const playerWins = this.player.lapCount > this.rival.lapCount ||
+      const playerWins =
+        this.player.lapCount > this.rival.lapCount ||
         (this.player.lapCount === this.rival.lapCount && this.player.score >= this.rival.score);
       this.hud.showResult(
         playerWins ? "P1" : "P2",
         playerWins
           ? `You beat the champion in ${this.sessionTime.toFixed(1)}s.`
-          : `The ML bot took it in ${this.sessionTime.toFixed(1)}s. Train harder or reshape the circuit.`,
+          : `The ML bot took it in ${this.sessionTime.toFixed(1)}s. Retrain or reshape the circuit.`,
         [
           { label: "Rematch", action: "retry-race", primary: true },
           { label: "Train AI", action: "start-train" },
@@ -450,44 +462,22 @@ export class Game {
     }
   }
 
-  private drawSensors() {
-    while (this.sensorGroup.children.length) {
-      const line = this.sensorGroup.children.pop()!;
-      this.sensorGroup.remove(line);
-      const mesh = line as THREE.Line;
-      mesh.geometry.dispose();
-      (mesh.material as THREE.Material).dispose();
-    }
-
-    const cars: Car[] = [];
-    if (this.mode === "train" || this.mode === "watch") cars.push(...this.trainer.cars.filter((c) => c.alive).slice(0, 6));
-    if (this.mode === "race" && this.rival?.alive) cars.push(this.rival);
-
-    for (const car of cars) {
-      for (const [start, end] of car.sensor.debugLines) {
-        const geo = new THREE.BufferGeometry().setFromPoints([start, end]);
-        const mat = new THREE.LineBasicMaterial({
-          color: 0xffe566,
-          transparent: true,
-          opacity: 0.35,
-        });
-        this.sensorGroup.add(new THREE.Line(geo, mat));
-      }
-    }
-  }
-
   private updateHud() {
     let alive = 0;
     let lap = 0;
     let speed = 0;
-    let gen = this.trainer.generation;
+    const gen = this.trainer.generation;
     let best = this.trainer.bestScore;
 
-    if (this.mode === "train" || this.mode === "watch") {
+    if (this.mode === "train") {
       alive = this.trainer.getAliveCount();
-      const lead = this.trainer.cars[0];
-      lap = lead?.lapCount ?? 0;
+      const lead = this.trainer.fast?.agents[0];
+      lap = lead?.laps ?? 0;
       speed = lead?.speed ?? 0;
+    } else if (this.mode === "watch" && this.watchCar) {
+      alive = this.watchCar.alive ? 1 : 0;
+      lap = this.watchCar.lapCount;
+      speed = this.watchCar.speed;
     } else if (this.mode === "race" && this.player) {
       alive = this.player.alive ? 1 : 0;
       lap = this.player.lapCount;
@@ -497,7 +487,7 @@ export class Game {
 
     this.hud.updateStats({
       generation: gen,
-      bestScore: best,
+      bestScore: Math.round(best * 10) / 10,
       alive,
       lap,
       timeSec: this.sessionTime,

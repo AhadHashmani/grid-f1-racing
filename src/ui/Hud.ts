@@ -128,7 +128,8 @@ export class Hud {
         </ol>
         <div class="edit-coach-actions">
           <button type="button" class="action-btn" data-action="reset-track">Reset Layout</button>
-          <button type="button" class="action-btn primary" data-action="start-train">Train This Track</button>
+          <button type="button" class="action-btn primary" data-action="quick-train">Quick Train</button>
+          <button type="button" class="action-btn" data-action="start-train">Train Live</button>
         </div>
       </div>
 
@@ -234,19 +235,20 @@ export class Hud {
         <li>After edits, <strong>Train AI</strong> learns this layout from scratch</li>
       `;
     } else if (mode === "train") {
-      const cfg = DIFFICULTIES[this.difficulty];
       this.helpTitle.textContent = "Training";
       help.innerHTML = `
-        <li>After editing, training starts <strong>fresh</strong> for that layout</li>
-        <li>~${Math.max(cfg.population, 24)} cars · aim for ${cfg.trainGenerationsHint}+ gens on curvy tracks</li>
-        <li>Best score rises as cars clear more of the circuit</li>
-        <li><kbd>Space</kbd> watches the champ · use <strong>Retrain Fresh</strong> if stuck</li>
+        <li>Turbo trainer runs ~2 generations every frame</li>
+        <li>Seeded drivers usually lap in <strong>1–2 gens</strong> even on curvy edits</li>
+        <li><strong>Quick Train</strong> learns a lap in under a second</li>
+        <li><kbd>Space</kbd> watches the champ</li>
       `;
-      // Inject retrain control into edit coach area reuse - show via help actions
-      if (!this.root.querySelector("[data-action='retrain-fresh']")) {
+      if (!this.root.querySelector(".train-actions")) {
         const actions = document.createElement("div");
         actions.className = "train-actions";
-        actions.innerHTML = `<button type="button" class="action-btn" data-action="retrain-fresh">Retrain Fresh</button>`;
+        actions.innerHTML = `
+          <button type="button" class="action-btn primary" data-action="quick-train">Quick Train</button>
+          <button type="button" class="action-btn" data-action="retrain-fresh">Retrain Fresh</button>
+        `;
         this.helpEl.appendChild(actions);
       }
     } else if (mode === "race") {
