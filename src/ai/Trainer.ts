@@ -10,6 +10,7 @@ export type ChampionSave = {
   generation: number;
   bestScore: number;
   bestLapTime: number | null;
+  trackHash?: string;
 };
 
 export class Trainer {
@@ -18,23 +19,29 @@ export class Trainer {
   bestScore = 0;
   bestLapTime: number | null = null;
   frame = 0;
-  population = 24;
-  maxFrames = 2800;
+  population = 28;
+  maxFrames = 3200;
   maxLaps = 1;
   mutationBoost = 0;
   training = true;
   champion: Car | null = null;
+  trackHash = "";
   private colors = [0xe10600, 0x00d2be, 0xff8700, 0x3b82f6, 0xa855f7, 0xf43f5e, 0x22c55e, 0xeab308];
   private track: Track;
+  private stagnantGens = 0;
 
   constructor(track: Track) {
     this.track = track;
   }
 
   applyDifficulty(cfg: DifficultyConfig) {
-    this.population = cfg.population;
-    this.maxFrames = cfg.maxFrames;
+    this.population = Math.max(cfg.population, 24);
+    this.maxFrames = Math.max(cfg.maxFrames, 3000);
     this.mutationBoost = cfg.mutationBoost;
+  }
+
+  setTrackHash(hash: string) {
+    this.trackHash = hash;
   }
 
   startFresh() {
@@ -43,9 +50,38 @@ export class Trainer {
     this.bestScore = 0;
     this.bestLapTime = null;
     this.frame = 0;
+    this.stagnantGens = 0;
     this.training = true;
     this.champion = null;
     this.spawnRandom();
+  }
+
+  /** After a track edit, old champions are useless — always retrain from scratch. */
+  startForCurrentTrack(hash: string, forceFresh = false) {
+    this.trackHash = hash;
+    const saved = this.peekSave();
+    const sameTrack = saved?.trackHash != null && saved.trackHash === hash;
+
+    if (forceFresh || !sameTrack) {
+      this.startFresh();
+      return;
+    }
+
+    if (this.tryLoadChampion()) {
+      this.continueFromChampion();
+    } else {
+      this.startFresh();
+    }
+  }
+
+  private peekSave(): ChampionSave | null {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as ChampionSave;
+    } catch {
+      return null;
+    }
   }
 
   tryLoadChampion(): boolean {
@@ -78,7 +114,8 @@ export class Trainer {
   spawnRandom() {
     this.cars = [];
     for (let i = 0; i < this.population; i++) {
-      const car = new Car(this.colors[i % this.colors.length]);
+      // Slightly slower + sharper steering makes curvy edited tracks learnable
+      const car = new Car(this.colors[i % this.colors.length], 20 + Math.random() * 4, 3.0 + Math.random() * 0.4, 15);
       car.reset(this.track, (i % 5) - 2);
       this.cars.push(car);
     }
@@ -89,11 +126,26 @@ export class Trainer {
       this.spawnRandom();
       return;
     }
-    const mutation = Math.max(0.02, getMutation(this.generation) + this.mutationBoost);
+    let mutation = Math.max(0.04, getMutation(this.generation) + this.mutationBoost);
+    // If stuck improving, inject bigger mutations + some fresh randoms
+    if (this.stagnantGens >= 4) mutation = Math.min(0.45, mutation + 0.12);
+
     this.cars = [];
+    const randomSlots = this.stagnantGens >= 4 ? Math.ceil(this.population * 0.25) : Math.ceil(this.population * 0.1);
+
     for (let i = 0; i < this.population; i++) {
+      if (i >= this.population - randomSlots) {
+        const car = new Car(this.colors[i % this.colors.length], 20 + Math.random() * 4, 3.1, 15);
+        car.reset(this.track, (i % 5) - 2);
+        this.cars.push(car);
+        continue;
+      }
       const car = this.champion.cloneBrainCar(this.colors[i % this.colors.length]);
-      if (i > 0) car.brain.mutate(mutation);
+      if (i > 0) {
+        // Varied mutation strength across the swarm
+        const amount = i < 3 ? mutation * 0.35 : i < this.population * 0.5 ? mutation : mutation * 1.4;
+        car.brain.mutate(amount);
+      }
       car.reset(this.track, (i % 5) - 2);
       this.cars.push(car);
     }
@@ -114,12 +166,13 @@ export class Trainer {
     if (this.cars.every((c) => !c.alive)) return true;
     if (this.frame >= this.maxFrames) return true;
     if (this.cars.some((c) => c.lapCount >= this.maxLaps)) return true;
-    if (this.training && this.cars.some((c) => c.score >= checkpoints.length + 1)) return true;
+    if (this.training && this.cars.some((c) => c.score >= checkpoints.length + 1.5)) return true;
     return false;
   }
 
   endGeneration(fps: number) {
     const champ = this.getChampionCandidate();
+    const prevBest = this.bestScore;
     this.champion = champ.cloneBrainCar(0xe10600);
 
     let lapTime: number | null = null;
@@ -131,10 +184,13 @@ export class Trainer {
       this.saveChampion(champ, lapTime);
     }
 
+    if (champ.score <= prevBest + 0.05) this.stagnantGens += 1;
+    else this.stagnantGens = 0;
+
     this.generation += 1;
     this.frame = 0;
 
-    if (champ.score === 0) {
+    if (champ.score < 0.15) {
       this.spawnRandom();
     } else {
       this.spawnFromChampion();
@@ -142,7 +198,7 @@ export class Trainer {
   }
 
   saveChampion(car: Car, lapTime: number | null) {
-    const improvedScore = car.score > this.bestScore;
+    const improvedScore = car.score > this.bestScore + 0.001;
     const improvedTime =
       lapTime != null && (this.bestLapTime == null || lapTime < this.bestLapTime);
 
@@ -156,6 +212,7 @@ export class Trainer {
         generation: this.generation,
         bestScore: this.bestScore,
         bestLapTime: this.bestLapTime,
+        trackHash: this.trackHash,
       };
       localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
       this.champion = car.cloneBrainCar(0xe10600);
@@ -167,6 +224,10 @@ export class Trainer {
     if (!raw) return null;
     try {
       const data = JSON.parse(raw) as ChampionSave;
+      // Reject brains trained on a different layout
+      if (data.trackHash && this.trackHash && data.trackHash !== this.trackHash) {
+        return null;
+      }
       const car = new Car(0xe10600);
       car.brain = NeuralNetwork.fromJSON(data.brain);
       this.bestScore = data.bestScore;
@@ -180,6 +241,9 @@ export class Trainer {
   }
 
   hasSavedChampion(): boolean {
-    return localStorage.getItem(SAVE_KEY) != null;
+    const saved = this.peekSave();
+    if (!saved) return false;
+    if (saved.trackHash && this.trackHash && saved.trackHash !== this.trackHash) return false;
+    return true;
   }
 }

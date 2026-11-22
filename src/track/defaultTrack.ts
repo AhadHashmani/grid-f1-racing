@@ -16,5 +16,5 @@ export const DEFAULT_CONTROL_POINTS: ControlPoint[] = [
   { x: -18, z: -44 },
 ];
 
-export const TRACK_WIDTH = 10;
-export const TRACK_SAMPLES = 240;
+export const TRACK_WIDTH = 12;
+export const TRACK_SAMPLES = 280;

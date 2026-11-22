@@ -32,6 +32,7 @@ export class Game {
   private anim = 0;
   private container: HTMLElement;
   private difficulty: DifficultyId = "pro";
+  private trackDirty = false;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -54,13 +55,15 @@ export class Game {
     this.buildWorld();
     this.editor = new TrackEditor(this.scene, this.chase.camera, this.track, this.renderer.domElement);
     this.editor.setOnChange(() => {
-      this.checkpoints = this.track.getCheckpointProgresses(16);
+      this.checkpoints = this.track.getCheckpointProgresses();
+      this.trackDirty = true;
       // Recenter quietly; keep edit camera locked (no orbit)
       this.fitOverview();
       if (this.mode === "edit") this.setEditCamera();
     });
     this.trainer = new Trainer(this.track);
-    this.checkpoints = this.track.getCheckpointProgresses(16);
+    this.trainer.setTrackHash(this.track.hashLayout());
+    this.checkpoints = this.track.getCheckpointProgresses();
 
     this.hud = new Hud(container);
     this.hud.setHandlers(
@@ -186,10 +189,21 @@ export class Game {
         break;
       case "reset-track":
         this.editor.resetToDefault(DEFAULT_CONTROL_POINTS);
-        this.checkpoints = this.track.getCheckpointProgresses(16);
+        this.checkpoints = this.track.getCheckpointProgresses();
+        this.trackDirty = true;
         this.fitOverview();
         this.setEditCamera();
         this.hud.showBanner("TRACK RESET");
+        break;
+      case "retrain-fresh":
+        this.trainer.setTrackHash(this.track.hashLayout());
+        this.trainer.startFresh();
+        this.trackDirty = false;
+        this.clearCars();
+        this.attachTrainerCars();
+        this.mode = "train";
+        this.hud.setMode("train");
+        this.hud.showBanner("FRESH TRAINING");
         break;
     }
   }
@@ -232,11 +246,14 @@ export class Game {
     }
 
     if (mode === "train") {
-      if (this.trainer.hasSavedChampion()) this.trainer.continueFromChampion();
-      else this.trainer.startFresh();
+      const hash = this.track.hashLayout();
+      this.trainer.setTrackHash(hash);
+      // Edited layouts always start fresh — old brains can't transfer to new curves
+      this.trainer.startForCurrentTrack(hash, this.trackDirty);
+      this.trackDirty = false;
       this.attachTrainerCars();
       this.fitOverview();
-      this.hud.showBanner("TRAINING");
+      this.hud.showBanner(this.trainer.generation <= 1 ? "FRESH TRAINING" : "TRAINING");
       return;
     }
 
@@ -264,9 +281,9 @@ export class Game {
       bot = new Car(0x00d2be);
     }
 
-    const baseMax = 28;
-    const baseRot = 2.4;
-    const baseAccel = 18;
+    const baseMax = 24;
+    const baseRot = 2.9;
+    const baseAccel = 16;
 
     this.player = new Car(0xe10600, baseMax * cfg.playerSpeedMult, baseRot, baseAccel);
     this.rival = bot.cloneBrainCar(0x00d2be);
@@ -351,9 +368,9 @@ export class Game {
   }
 
   private updateTraining(dt: number) {
-    // Substep for smoother learning sim
-    const steps = 2;
-    const stepDt = dt / steps;
+    // Run several physics steps per frame so generations advance faster on hard tracks
+    const steps = 5;
+    const stepDt = Math.min(dt / 2, 0.02);
     for (let s = 0; s < steps; s++) {
       this.trainer.frame += 1;
       for (const car of this.trainer.cars) {
@@ -361,8 +378,8 @@ export class Game {
         car.sensor.update(this.track);
         const outputs = car.brain.feedForward(car.sensor.readings);
         car.applyAiOutputs(outputs, stepDt);
-        car.updateRaceProgress(this.track, this.checkpoints, this.trainer.frame);
-        car.checkStuck(this.trainer.frame);
+        car.updateRaceProgress(this.track, this.checkpoints, this.trainer.frame, true);
+        car.checkStuck(this.trainer.frame, 480);
       }
 
       if (this.trainer.generationOver(this.checkpoints)) {
@@ -380,7 +397,7 @@ export class Game {
     car.sensor.update(this.track);
     const outputs = car.brain.feedForward(car.sensor.readings);
     car.applyAiOutputs(outputs, dt);
-    car.updateRaceProgress(this.track, this.checkpoints, this.trainer.frame);
+    car.updateRaceProgress(this.track, this.checkpoints, this.trainer.frame, false);
 
     if (!car.alive || car.lapCount >= 1 || this.trainer.frame > this.trainer.maxFrames) {
       car.reset(this.track, 0);
@@ -394,13 +411,13 @@ export class Game {
 
     const controls = this.input.getRacingControls();
     this.player.applyControls(controls, dt);
-    this.player.updateRaceProgress(this.track, this.checkpoints, Math.floor(this.sessionTime * 60));
+    this.player.updateRaceProgress(this.track, this.checkpoints, Math.floor(this.sessionTime * 60), false);
 
     if (this.rival.alive) {
       this.rival.sensor.update(this.track);
       const outputs = this.rival.brain.feedForward(this.rival.sensor.readings);
       this.rival.applyAiOutputs(outputs, dt);
-      this.rival.updateRaceProgress(this.track, this.checkpoints, Math.floor(this.sessionTime * 60));
+      this.rival.updateRaceProgress(this.track, this.checkpoints, Math.floor(this.sessionTime * 60), false);
     }
 
     if (!this.player.alive) {

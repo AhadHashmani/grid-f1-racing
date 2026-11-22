@@ -4,9 +4,9 @@ import type { Track } from "../track/Track";
 
 export class Sensor {
   car: Car;
-  rayCount = 9;
-  rayLength = 28;
-  raySpread = Math.PI * 0.72;
+  rayCount = 11;
+  rayLength = 32;
+  raySpread = Math.PI * 0.85;
   readings: number[] = [];
   debugLines: THREE.Vector3[][] = [];
 

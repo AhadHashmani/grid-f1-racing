@@ -124,7 +124,7 @@ export class Hud {
           <li><strong>Click and drag</strong> an orange ball to bend that corner</li>
           <li>The <strong style="color:#00d2be">teal</strong> ball is start / finish — drag it too</li>
           <li>The asphalt updates live as you drag</li>
-          <li>When it looks right, hit <strong>Train AI</strong> or <strong>Race Bot</strong></li>
+          <li>Then <strong>Train This Track</strong> — the bot relearns your curves from scratch</li>
         </ol>
         <div class="edit-coach-actions">
           <button type="button" class="action-btn" data-action="reset-track">Reset Layout</button>
@@ -222,6 +222,7 @@ export class Hud {
     this.overlay.classList.toggle("visible", mode === "menu");
     this.editCoach.classList.toggle("hidden", mode !== "edit");
     this.root.classList.toggle("mode-edit", mode === "edit");
+    this.root.querySelector(".train-actions")?.remove();
 
     const help = this.helpEl.querySelector("ul")!;
     if (mode === "edit") {
@@ -230,17 +231,24 @@ export class Hud {
         <li><strong>Drag orange balls</strong> — each one pulls a corner</li>
         <li><strong style="color:#00d2be">Teal</strong> = start/finish line</li>
         <li>Camera stays fixed so dragging is easy</li>
-        <li>Use <strong>Reset Layout</strong> if you want the default oval back</li>
+        <li>After edits, <strong>Train AI</strong> learns this layout from scratch</li>
       `;
     } else if (mode === "train") {
       const cfg = DIFFICULTIES[this.difficulty];
       this.helpTitle.textContent = "Training";
       help.innerHTML = `
-        <li>${cfg.population} cars evolving with wall-ray sensors</li>
-        <li>Aim for ~${cfg.trainGenerationsHint}+ generations for a strong champ</li>
-        <li>Best brains mutate into the next generation</li>
-        <li><kbd>Space</kbd> stops training and watches the champion</li>
+        <li>After editing, training starts <strong>fresh</strong> for that layout</li>
+        <li>~${Math.max(cfg.population, 24)} cars · aim for ${cfg.trainGenerationsHint}+ gens on curvy tracks</li>
+        <li>Best score rises as cars clear more of the circuit</li>
+        <li><kbd>Space</kbd> watches the champ · use <strong>Retrain Fresh</strong> if stuck</li>
       `;
+      // Inject retrain control into edit coach area reuse - show via help actions
+      if (!this.root.querySelector("[data-action='retrain-fresh']")) {
+        const actions = document.createElement("div");
+        actions.className = "train-actions";
+        actions.innerHTML = `<button type="button" class="action-btn" data-action="retrain-fresh">Retrain Fresh</button>`;
+        this.helpEl.appendChild(actions);
+      }
     } else if (mode === "race") {
       const cfg = DIFFICULTIES[this.difficulty];
       this.helpTitle.textContent = "Race controls";

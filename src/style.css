@@ -241,6 +241,10 @@ canvas {
   border-color: rgba(255, 135, 0, 0.3);
 }
 
+.train-actions {
+  margin-top: 0.7rem;
+}
+
 .hud {
   position: absolute;
   left: 1.25rem;

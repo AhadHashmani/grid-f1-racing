@@ -262,12 +262,20 @@ export class Track {
   }
 
   getSpawnPose(lane = 0): { position: THREE.Vector3; yaw: number } {
-    const s = this.samples[2];
-    const lateral = lane * 2.2;
+    const s = this.samples[Math.min(4, this.samples.length - 1)];
+    // Keep cars well inside the asphalt even on tight edited corners
+    const maxLateral = this.width * 0.28;
+    const lateral = THREE.MathUtils.clamp(lane * 1.6, -maxLateral, maxLateral);
     return {
       position: s.position.clone().addScaledVector(s.normal, lateral).setY(0.35),
       yaw: Math.atan2(s.tangent.x, s.tangent.z),
     };
+  }
+
+  /** Stable fingerprint so we can invalidate brains after the layout changes. */
+  hashLayout(): string {
+    const parts = this.controlPoints.map((p) => `${p.x.toFixed(1)},${p.z.toFixed(1)}`);
+    return `${parts.join("|")}|w${this.width.toFixed(1)}`;
   }
 
   /** Returns signed progress 0..1 and nearest sample index. */
@@ -306,11 +314,12 @@ export class Track {
     return 1;
   }
 
-  /** Auto-place checkpoints evenly around the track. */
-  getCheckpointProgresses(count = 16): number[] {
+  /** Auto-place checkpoints evenly around the track (denser on longer circuits). */
+  getCheckpointProgresses(count?: number): number[] {
+    const n = count ?? Math.max(20, Math.round(this.totalLength / 12));
     const result: number[] = [];
-    for (let i = 1; i <= count; i++) {
-      result.push(i / (count + 1));
+    for (let i = 1; i <= n; i++) {
+      result.push(i / (n + 1));
     }
     return result;
   }

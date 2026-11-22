@@ -22,6 +22,7 @@ export class Car {
   score = 0;
   frameOfLastCp = 0;
   lastProgress = 0;
+  bestProgress = 0;
   sensor: Sensor;
   brain: NeuralNetwork;
   maxSpeed: number;
@@ -29,13 +30,14 @@ export class Car {
   acceleration: number;
   color: number;
   translucent = false;
+  private offTrackFrames = 0;
   private baseOpacityMaterials: THREE.MeshStandardMaterial[] = [];
 
   constructor(
     color = 0xe10600,
-    maxSpeed = 28,
-    rotSpeed = 2.4,
-    acceleration = 18,
+    maxSpeed = 22,
+    rotSpeed = 3.1,
+    acceleration = 16,
   ) {
     this.color = color;
     this.maxSpeed = maxSpeed;
@@ -43,7 +45,7 @@ export class Car {
     this.acceleration = acceleration;
     this.mesh = createF1CarMesh(color);
     this.sensor = new Sensor(this);
-    this.brain = new NeuralNetwork([this.sensor.rayCount, 20, 4]);
+    this.brain = new NeuralNetwork([this.sensor.rayCount, 28, 4]);
     this.cacheMaterials();
   }
 
@@ -72,6 +74,8 @@ export class Car {
     this.score = 0;
     this.frameOfLastCp = 0;
     this.lastProgress = 0;
+    this.bestProgress = 0;
+    this.offTrackFrames = 0;
     this.setGhost(false);
     this.syncMesh();
   }
@@ -88,10 +92,10 @@ export class Car {
   syncMesh() {
     this.mesh.position.copy(this.position);
     this.mesh.rotation.y = this.yaw;
-    // Subtle bank / lean into turns based on yaw rate proxy via lateral speed feel
     const lean = THREE.MathUtils.clamp(this.speed * 0.002, 0, 0.12);
     this.mesh.rotation.z = Math.sin(performance.now() * 0.002) * 0.01;
-    this.mesh.position.y = 0.02 + Math.abs(Math.sin(performance.now() * 0.01 + this.speed)) * 0.01 * lean;
+    this.mesh.position.y =
+      0.02 + Math.abs(Math.sin(performance.now() * 0.01 + this.speed)) * 0.01 * lean;
   }
 
   applyControls(controls: CarControls, dt: number) {
@@ -102,68 +106,114 @@ export class Car {
     } else if (controls.backward) {
       this.speed = Math.max(this.speed - this.acceleration * 1.2 * dt, -this.maxSpeed * 0.4);
     } else {
-      // Coast / drag
       const drag = this.acceleration * 0.35 * dt;
       if (this.speed > 0) this.speed = Math.max(0, this.speed - drag);
       else if (this.speed < 0) this.speed = Math.min(0, this.speed + drag);
     }
 
-    const steerFactor = THREE.MathUtils.clamp(Math.abs(this.speed) / this.maxSpeed, 0.25, 1);
-    if (controls.left) this.yaw += this.rotSpeed * steerFactor * dt;
-    if (controls.right) this.yaw -= this.rotSpeed * steerFactor * dt;
+    const steerFactor = THREE.MathUtils.clamp(Math.abs(this.speed) / this.maxSpeed, 0.35, 1);
+    if (controls.left && !controls.right) this.yaw += this.rotSpeed * steerFactor * dt;
+    if (controls.right && !controls.left) this.yaw -= this.rotSpeed * steerFactor * dt;
 
     this.position.x += Math.sin(this.yaw) * this.speed * dt;
     this.position.z += Math.cos(this.yaw) * this.speed * dt;
     this.syncMesh();
   }
 
-  applyAiOutputs(outputs: ArrayLike<number>, dt: number, threshold = 0.5) {
+  applyAiOutputs(outputs: ArrayLike<number>, dt: number) {
+    const forward = (outputs[0] ?? 0) > 0.45;
+    const left = (outputs[1] ?? 0) > 0.45;
+    const right = (outputs[2] ?? 0) > 0.45;
+    const backward = (outputs[3] ?? 0) > 0.55;
+
+    // Bias: if the net is undecided, keep rolling forward so genes that steer can express
+    const anySteer = left || right;
     this.applyControls(
       {
-        forward: (outputs[0] ?? 0) > threshold,
-        left: (outputs[1] ?? 0) > threshold,
-        right: (outputs[2] ?? 0) > threshold,
-        backward: (outputs[3] ?? 0) > threshold,
+        forward: forward || (!backward && !anySteer) || (anySteer && !backward),
+        left: left && !right,
+        right: right && !left,
+        backward: backward && !forward,
       },
       dt,
     );
   }
 
-  updateRaceProgress(track: Track, checkpoints: number[], frame: number) {
-    const { progress, onTrack } = track.project(this.position);
+  updateRaceProgress(track: Track, checkpoints: number[], frame: number, training = false) {
+    const { progress, onTrack, lateral } = track.project(this.position);
+
     if (!onTrack) {
-      this.alive = false;
-      this.setGhost(true);
-      return;
+      this.offTrackFrames += 1;
+      // Short grace + gentle recenter during training so genes can recover from near-misses
+      if (training && this.offTrackFrames <= 8) {
+        this.speed *= 0.82;
+        const sample = track.sampleAtProgress(progress);
+        this.position.lerp(sample.position.clone().setY(this.position.y), 0.18);
+        this.yaw = THREE.MathUtils.lerp(
+          this.yaw,
+          Math.atan2(sample.tangent.x, sample.tangent.z),
+          0.12,
+        );
+        this.syncMesh();
+      } else {
+        this.alive = false;
+        this.setGhost(true);
+        this.updateScore(checkpoints.length, progress);
+        return;
+      }
+    } else {
+      this.offTrackFrames = 0;
+      // Soft keep-center pressure helps survival on tight edits
+      if (training && Math.abs(lateral) > track.width * 0.28) {
+        this.speed *= 0.985;
+      }
     }
 
-    // Forward progress only (handles wrap near finish)
-    const forward =
-      progress >= this.lastProgress - 0.002 ||
-      (this.lastProgress > 0.9 && progress < 0.1);
+    const wrappedForward = this.lastProgress > 0.88 && progress < 0.12;
+    const forward = progress >= this.lastProgress - 0.004 || wrappedForward;
 
     if (forward && this.checkpointIndex < checkpoints.length) {
       const next = checkpoints[this.checkpointIndex];
-      if (progress >= next && (this.lastProgress < next || (this.lastProgress > 0.9 && next < 0.1))) {
+      const crossed =
+        (this.lastProgress < next && progress >= next) ||
+        (wrappedForward && next > 0.9);
+      if (crossed) {
         this.checkpointIndex += 1;
         this.frameOfLastCp = frame;
       }
     }
 
-    // Lap complete after clearing checkpoints and crossing start
+    // Continuous progress reward (handles long gaps between checkpoints)
+    if (forward) {
+      if (progress >= this.bestProgress || wrappedForward) {
+        if (wrappedForward) this.bestProgress = Math.max(this.bestProgress, progress + 1);
+        else this.bestProgress = Math.max(this.bestProgress, progress);
+      }
+    }
+
     if (this.checkpointIndex >= checkpoints.length) {
-      if (this.lastProgress > 0.82 && progress < 0.1) {
+      if (this.lastProgress > 0.8 && progress < 0.12) {
         this.lapCount += 1;
         this.checkpointIndex = 0;
         this.frameOfLastCp = frame;
+        this.bestProgress = Math.max(this.bestProgress, 1);
       }
     }
 
     this.lastProgress = progress;
-    this.score = this.lapCount * (checkpoints.length + 1) + this.checkpointIndex;
+    this.updateScore(checkpoints.length, progress);
   }
 
-  checkStuck(frame: number, maxIdle = 220) {
+  private updateScore(checkpointCount: number, progress: number) {
+    // Discrete CPs + continuous progress so partial corner clears still rank higher
+    const continuous = Math.min(0.99, Math.max(progress, this.bestProgress % 1));
+    this.score =
+      this.lapCount * (checkpointCount + 2) +
+      this.checkpointIndex +
+      continuous;
+  }
+
+  checkStuck(frame: number, maxIdle = 420) {
     if (frame - this.frameOfLastCp > maxIdle) {
       this.alive = false;
       this.setGhost(true);
