@@ -13,8 +13,14 @@ export class Hud {
   private overlay!: HTMLElement;
   private banner!: HTMLElement;
   private editCoach!: HTMLElement;
+  private progressEl!: HTMLElement;
+  private progressFill!: HTMLElement;
+  private lessonsEl!: HTMLElement;
+  private touchPad!: HTMLElement;
   private onMode: ((mode: GameMode) => void) | null = null;
   private onAction: ((action: string) => void) | null = null;
+  private onTouch: ((control: "forward" | "left" | "right" | "brake", down: boolean) => void) | null =
+    null;
   private lastFireAt = 0;
 
   constructor(parent: HTMLElement) {
@@ -25,10 +31,16 @@ export class Hud {
     this.root.addEventListener("click", this.onRootPointer, true);
   }
 
-  setHandlers(onMode: (mode: GameMode) => void, onAction: (action: string) => void) {
+  setHandlers(
+    onMode: (mode: GameMode) => void,
+    onAction: (action: string) => void,
+    onTouch?: (control: "forward" | "left" | "right" | "brake", down: boolean) => void,
+  ) {
     this.onMode = onMode;
     this.onAction = onAction;
+    this.onTouch = onTouch ?? null;
     this.bindButtons();
+    this.bindTouch();
   }
 
   private fireAction(action: string) {
@@ -136,6 +148,25 @@ export class Hud {
         <div class="unit">KM/H</div>
       </div>
 
+      <div class="learn-meter hidden" id="learn-meter">
+        <div class="learn-meter-top">
+          <span>Leader lap</span>
+          <span id="stat-lessons">0 lessons</span>
+        </div>
+        <div class="learn-track">
+          <div class="learn-fill" id="learn-fill"></div>
+        </div>
+      </div>
+
+      <div class="touch-pad hidden" id="touch-pad">
+        <button type="button" class="touch-btn" data-touch="left">◀</button>
+        <div class="touch-col">
+          <button type="button" class="touch-btn" data-touch="forward">▲</button>
+          <button type="button" class="touch-btn" data-touch="brake">▼</button>
+        </div>
+        <button type="button" class="touch-btn" data-touch="right">▶</button>
+      </div>
+
       <div class="help" id="help">
         <h3 id="help-title">How to play</h3>
         <ul>
@@ -173,11 +204,36 @@ export class Hud {
     this.overlay = this.root.querySelector("#overlay")!;
     this.banner = this.root.querySelector("#banner")!;
     this.editCoach = this.root.querySelector("#edit-coach")!;
+    this.progressEl = this.root.querySelector("#learn-meter")!;
+    this.progressFill = this.root.querySelector("#learn-fill")!;
+    this.lessonsEl = this.root.querySelector("#stat-lessons")!;
+    this.touchPad = this.root.querySelector("#touch-pad")!;
 
     this.root.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((btn) => {
       this.modeButtons[btn.dataset.mode!] = btn;
     });
     this.bindButtons();
+    this.bindTouch();
+  }
+
+  private bindTouch() {
+    this.root.querySelectorAll<HTMLElement>("[data-touch]").forEach((el) => {
+      if ((el as HTMLElement & { __touchBound?: boolean }).__touchBound) return;
+      (el as HTMLElement & { __touchBound?: boolean }).__touchBound = true;
+      const control = el.dataset.touch as "forward" | "left" | "right" | "brake";
+      const down = (e: Event) => {
+        e.preventDefault();
+        this.onTouch?.(control, true);
+      };
+      const up = (e: Event) => {
+        e.preventDefault();
+        this.onTouch?.(control, false);
+      };
+      el.addEventListener("pointerdown", down);
+      el.addEventListener("pointerup", up);
+      el.addEventListener("pointerleave", up);
+      el.addEventListener("pointercancel", up);
+    });
   }
 
   setMode(mode: GameMode) {
@@ -186,6 +242,8 @@ export class Hud {
     });
     this.overlay.classList.toggle("visible", mode === "menu");
     this.editCoach.classList.toggle("hidden", mode !== "edit");
+    this.progressEl.classList.toggle("hidden", mode !== "train");
+    this.touchPad.classList.toggle("hidden", mode !== "race");
     this.root.classList.toggle("mode-edit", mode === "edit");
     this.root.querySelector(".train-actions")?.remove();
 
@@ -248,6 +306,8 @@ export class Hud {
     timeSec: number;
     speed: number;
     mode: GameMode;
+    progress?: number;
+    lessons?: number;
   }) {
     this.genEl.textContent = String(opts.generation);
     this.scoreEl.textContent = String(opts.bestScore);
@@ -257,6 +317,13 @@ export class Hud {
         : `${opts.alive}${opts.lap > 0 ? ` · L${opts.lap}` : ""}`;
     this.timeEl.textContent = formatTime(opts.timeSec);
     this.speedEl.textContent = String(Math.round(Math.abs(opts.speed) * 8.2));
+    if (opts.progress != null) {
+      const pct = Math.max(0, Math.min(100, opts.progress * 100));
+      this.progressFill.style.width = `${pct}%`;
+    }
+    if (opts.lessons != null) {
+      this.lessonsEl.textContent = `${opts.lessons} lesson${opts.lessons === 1 ? "" : "s"}`;
+    }
   }
 
   showBanner(text: string, ms = 1800) {

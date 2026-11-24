@@ -4,12 +4,12 @@ A 3D F1-themed recreation of [alexkemp3038/reinforcement-learning-racing-game](h
 
 ## Features
 
-- **3D F1 circuit** with asphalt, kerbs, barriers, and chase-camera race view
+- **Fast 3D circuit** — instanced kerbs/walls, deferred Game chunk, boot splash
 - **Track editor** — drag control points to reshape the course live
-- **Live Train AI** — watch the full swarm drive; crashes fade to ghosts
-- **Crash memory** — when a bot hits a wall a certain way, that brain never repeats the same mistake
-- **Watch champion** — spectate the saved best brain
-- **Race Bot** — drive in third person against the ML champion (2 laps)
+- **Live Train AI** — full swarm drives at once; leader shows sensor rays + lap meter
+- **Crash memory** — each bot stores crash lessons and will not repeat that mistake
+- **Touch + keyboard race** — on-screen pad on mobile, `WASD` on desktop
+- **Watch / Race** — spectate or duel the champion (2 laps)
 
 ## Run locally
 
@@ -24,16 +24,16 @@ Open the URL Vite prints (default `http://127.0.0.1:3847`).
 
 | Action | Input |
 | --- | --- |
-| Drive | `W A S D` or arrow keys |
+| Drive | `W A S D` / arrows, or on-screen pad |
 | Jump to champion while training | `Space` |
-| Edit track | Open **Edit Track**, then click-drag the orange balls (teal = start/finish) |
+| Edit track | **Edit Track** → drag orange balls (teal = start/finish) |
 
 ## Modes
 
-1. **Edit Track** — fixed top camera; drag orange nodes to reshape corners
-2. **Train AI** — every car races at once; elites keep crash lessons across generations
-3. **Watch Bot** — third-person view of the champion
-4. **Race Bot** — you (red) vs champion (teal); first to 2 laps
+1. **Edit Track** — fixed top camera; drag nodes to reshape corners  
+2. **Train AI** — swarm learns live; pulsing lead car + ray beams  
+3. **Watch Bot** — third-person champion  
+4. **Race Bot** — you (red) vs champion (teal)
 
 ## Stack
 

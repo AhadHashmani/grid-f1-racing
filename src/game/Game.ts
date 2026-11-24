@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { driveWithFastBrain } from "../ai/FastDriver";
+import { driveWithFastBrain, senseForDisplay } from "../ai/FastDriver";
+import { SensorRays } from "../ai/SensorRays";
 import { Trainer } from "../ai/Trainer";
 import { ChaseCamera } from "../camera/ChaseCamera";
 import { Car } from "../car/Car";
@@ -38,6 +39,8 @@ export class Game {
   private container: HTMLElement;
   private trackDirty = false;
   private leaderPulse = 0;
+  private sensorRays = new SensorRays(11);
+  private senseBuf = new Float32Array(11);
   private colors = [0xe10600, 0x00d2be, 0xff8700, 0x3b82f6, 0xa855f7, 0xf43f5e, 0x22c55e, 0xeab308];
 
   constructor(container: HTMLElement) {
@@ -60,6 +63,7 @@ export class Game {
     this.scene.add(this.track.meshGroup);
     this.scene.add(this.carGroup);
     this.scene.add(this.sensorGroup);
+    this.sensorGroup.add(this.sensorRays.group);
 
     this.buildWorld();
     this.editor = new TrackEditor(this.scene, this.chase.camera, this.track, this.renderer.domElement);
@@ -76,6 +80,7 @@ export class Game {
     this.hud.setHandlers(
       (mode) => this.setMode(mode),
       (action) => this.handleAction(action),
+      (control, down) => this.input.setTouch(control, down),
     );
 
     window.addEventListener("resize", () => this.onResize());
@@ -198,7 +203,8 @@ export class Game {
     this.editor.setEnabled(mode === "edit");
     this.renderer.domElement.style.pointerEvents = mode === "menu" ? "none" : "auto";
     this.clearCars();
-    this.sensorGroup.clear();
+    this.input.clearTouch();
+    this.sensorRays.setVisible(false);
     this.chase.reset();
     this.watchCar = null;
     this.watchBrain = null;
@@ -219,6 +225,7 @@ export class Game {
 
     if (mode === "train") {
       this.beginTraining(this.trackDirty);
+      this.sensorRays.setVisible(true);
       this.hud.showBanner("SWARM LEARNING");
       return;
     }
@@ -306,6 +313,15 @@ export class Game {
       const isLeader = i === leader && a.alive;
       car.mesh.scale.setScalar(isLeader ? 1.35 + Math.sin(this.leaderPulse) * 0.06 : 1.05);
       car.syncMesh();
+    }
+
+    const lead = agents[leader];
+    if (lead?.alive) {
+      senseForDisplay(lead.x, lead.z, lead.yaw, lead.speed, this.track, this.senseBuf);
+      this.sensorRays.update(lead.x, 0.35, lead.z, lead.yaw, this.senseBuf);
+      this.sensorRays.setVisible(true);
+    } else {
+      this.sensorRays.setVisible(false);
     }
   }
 
@@ -431,24 +447,32 @@ export class Game {
     const gen = this.trainer.generation;
     let best = this.trainer.bestScore;
 
+    let progress = 0;
+    let lessons = 0;
+
     if (this.mode === "train") {
       alive = this.trainer.getAliveCount();
       const agents = this.trainer.fast?.agents;
       const lead = agents?.[this.trainer.fast!.leaderIndex];
       lap = lead?.laps ?? 0;
       speed = lead?.speed ?? 0;
+      progress = lead ? (lead.laps > 0 ? 1 : Math.min(1, Math.max(0, lead.progress))) : 0;
+      lessons = lead?.brain.crashBook.lessons.length ?? this.trainer.champion?.crashBook.lessons.length ?? 0;
       if (agents?.length) {
         best = Math.max(best, ...agents.map((a) => a.score));
+        lessons = Math.max(lessons, ...agents.map((a) => a.brain.crashBook.lessons.length));
       }
     } else if (this.mode === "watch" && this.watchCar) {
       alive = this.watchCar.alive ? 1 : 0;
       lap = this.watchCar.lapCount;
       speed = this.watchCar.speed;
+      lessons = this.watchBrain?.crashBook.lessons.length ?? 0;
     } else if (this.mode === "race" && this.player) {
       alive = this.player.alive ? 1 : 0;
       lap = this.player.lapCount;
       speed = this.player.speed;
       best = Math.max(best, this.player.score, this.rival?.score ?? 0);
+      lessons = this.rivalBrain?.crashBook.lessons.length ?? 0;
     }
 
     this.hud.updateStats({
@@ -459,6 +483,8 @@ export class Game {
       timeSec: this.sessionTime,
       speed,
       mode: this.mode,
+      progress,
+      lessons,
     });
   }
 }

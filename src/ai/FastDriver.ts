@@ -29,5 +29,32 @@ export function driveWithFastBrain(car: Car, brain: FastBrain, track: Track, dt:
   brain.think(input, out);
   // Apply crash lessons so the champion never repeats known mistakes
   brain.crashBook.apply(proj.progress, proj.lateral, input[5], out);
+
+  // Match FastTrainer corner slowdown so race rivals behave like training
+  const front = input[Math.floor(RAYS / 2)];
   car.applyAnalog(out[0], out[1], out[2], dt);
+  if (front < 0.35) {
+    car.speed = Math.min(car.speed, 8 + front * 20);
+  }
+}
+
+/** Sense-only helper for drawing leader rays during training. */
+export function senseForDisplay(
+  x: number,
+  z: number,
+  yaw: number,
+  speed: number,
+  track: Track,
+  outDistances: Float32Array,
+): void {
+  const origin = new THREE.Vector3(x, 0.35, z);
+  const spread = Math.PI * 0.9;
+  for (let i = 0; i < RAYS; i++) {
+    const t = i / (RAYS - 1);
+    const rel = spread / 2 - spread * t;
+    const ang = yaw + rel;
+    const dir = new THREE.Vector3(Math.sin(ang), 0, Math.cos(ang));
+    outDistances[i] = track.raycast(origin, dir, 28);
+  }
+  void speed;
 }

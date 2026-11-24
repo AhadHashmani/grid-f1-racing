@@ -17,8 +17,6 @@ export class Track {
   totalLength = 0;
   meshGroup = new THREE.Group();
   private roadMesh: THREE.Mesh | null = null;
-  private wallMeshes: THREE.Mesh[] = [];
-  private kerbMeshes: THREE.Mesh[] = [];
   private markerGroup = new THREE.Group();
   private finishMesh: THREE.Mesh | null = null;
 
@@ -40,8 +38,6 @@ export class Track {
       this.meshGroup.remove(child);
       this.disposeObject(child);
     }
-    this.wallMeshes = [];
-    this.kerbMeshes = [];
     this.roadMesh = null;
     this.finishMesh = null;
     this.markerGroup = new THREE.Group();
@@ -155,66 +151,84 @@ export class Track {
     roadGeo.setIndex(indices);
     roadGeo.computeVertexNormals();
 
-    const roadMat = new THREE.MeshStandardMaterial({
-      color: 0x1a1d24,
-      roughness: 0.88,
-      metalness: 0.08,
-    });
+    const roadMat = new THREE.MeshLambertMaterial({ color: 0x1a1d24 });
     this.roadMesh = new THREE.Mesh(roadGeo, roadMat);
-    this.roadMesh.receiveShadow = false;
     this.meshGroup.add(this.roadMesh);
 
-    // Center dashed line
-    const dashMat = new THREE.MeshBasicMaterial({ color: 0xf0f0f0 });
+    const dummy = new THREE.Object3D();
+
+    // Center dashes — one InstancedMesh
+    const dashCount = Math.ceil(this.samples.length / 4);
+    const dashes = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.18, 0.04, 1.4),
+      new THREE.MeshBasicMaterial({ color: 0xf0f0f0 }),
+      dashCount,
+    );
+    let di = 0;
     for (let i = 0; i < this.samples.length; i += 4) {
       const s = this.samples[i];
-      const dash = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.04, 1.4), dashMat);
-      dash.position.copy(s.position).setY(0.04);
-      dash.lookAt(s.position.clone().add(s.tangent));
-      this.meshGroup.add(dash);
+      dummy.position.copy(s.position).setY(0.04);
+      dummy.lookAt(s.position.clone().add(s.tangent));
+      dummy.updateMatrix();
+      dashes.setMatrixAt(di++, dummy.matrix);
     }
+    dashes.instanceMatrix.needsUpdate = true;
+    this.meshGroup.add(dashes);
 
-    // Kerbs
-    const kerbColors = [0xe10600, 0xffffff];
+    // Kerbs — red + white instances (skip every other for fewer draws)
+    const kerbStep = 2;
+    const kerbPerSide = Math.ceil(this.samples.length / kerbStep);
+    const kerbRed = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.55, 0.12, 1.9),
+      new THREE.MeshLambertMaterial({ color: 0xe10600 }),
+      kerbPerSide * 2,
+    );
+    const kerbWhite = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.55, 0.12, 1.9),
+      new THREE.MeshLambertMaterial({ color: 0xffffff }),
+      kerbPerSide * 2,
+    );
+    let ri = 0;
+    let wi = 0;
     for (let side = -1; side <= 1; side += 2) {
-      for (let i = 0; i < this.samples.length; i++) {
+      for (let i = 0; i < this.samples.length; i += kerbStep) {
         const s = this.samples[i];
         const edge = s.position.clone().addScaledVector(s.normal, side * half);
-        const kerb = new THREE.Mesh(
-          new THREE.BoxGeometry(0.55, 0.12, 1.05),
-          new THREE.MeshStandardMaterial({
-            color: kerbColors[i % 2],
-            roughness: 0.55,
-            metalness: 0.1,
-          }),
-        );
-        kerb.position.copy(edge).setY(0.06);
-        kerb.lookAt(edge.clone().add(s.tangent));
-        kerb.castShadow = false;
-        this.kerbMeshes.push(kerb);
-        this.meshGroup.add(kerb);
+        dummy.position.copy(edge).setY(0.06);
+        dummy.lookAt(edge.clone().add(s.tangent));
+        dummy.updateMatrix();
+        if (Math.floor(i / kerbStep) % 2 === 0) kerbRed.setMatrixAt(ri++, dummy.matrix);
+        else kerbWhite.setMatrixAt(wi++, dummy.matrix);
       }
     }
+    kerbRed.count = ri;
+    kerbWhite.count = wi;
+    kerbRed.instanceMatrix.needsUpdate = true;
+    kerbWhite.instanceMatrix.needsUpdate = true;
+    this.meshGroup.add(kerbRed, kerbWhite);
 
-    // Soft walls / barriers
-    const wallMat = new THREE.MeshStandardMaterial({
-      color: 0xb8bec8,
-      roughness: 0.65,
-      metalness: 0.2,
-    });
+    // Barriers — single instanced mesh
+    const wallStep = 3;
+    const wallCount = Math.ceil(this.samples.length / wallStep) * 2;
+    const walls = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.35, 1.1, 2.8),
+      new THREE.MeshLambertMaterial({ color: 0xb8bec8 }),
+      wallCount,
+    );
+    let wallI = 0;
     for (let side = -1; side <= 1; side += 2) {
-      for (let i = 0; i < this.samples.length; i += 2) {
+      for (let i = 0; i < this.samples.length; i += wallStep) {
         const s = this.samples[i];
         const pos = s.position.clone().addScaledVector(s.normal, side * (half + 0.7));
-        const wall = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.1, 2.1), wallMat);
-        wall.position.copy(pos).setY(0.55);
-        wall.lookAt(pos.clone().add(s.tangent));
-        wall.castShadow = false;
-        wall.receiveShadow = false;
-        this.wallMeshes.push(wall);
-        this.meshGroup.add(wall);
+        dummy.position.copy(pos).setY(0.55);
+        dummy.lookAt(pos.clone().add(s.tangent));
+        dummy.updateMatrix();
+        walls.setMatrixAt(wallI++, dummy.matrix);
       }
     }
+    walls.count = wallI;
+    walls.instanceMatrix.needsUpdate = true;
+    this.meshGroup.add(walls);
 
     // Finish / start stripe
     const start = this.samples[0];

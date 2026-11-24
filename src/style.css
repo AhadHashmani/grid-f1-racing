@@ -33,6 +33,35 @@ body,
   position: relative;
 }
 
+.boot {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 0.6rem;
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 6vw, 3.2rem);
+  letter-spacing: 0.16em;
+  font-weight: 800;
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(225, 6, 0, 0.22), transparent 45%),
+    var(--bg);
+}
+
+.boot span {
+  color: var(--red);
+}
+
+.boot small {
+  display: block;
+  text-align: center;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 canvas {
   display: block;
   position: absolute;
@@ -59,7 +88,8 @@ canvas {
 #ui .help,
 #ui .hud,
 #ui .edit-coach,
-#ui .train-actions {
+#ui .train-actions,
+#ui .touch-pad {
   pointer-events: auto;
 }
 
@@ -245,6 +275,81 @@ canvas {
   color: var(--amber);
 }
 
+.learn-meter {
+  position: absolute;
+  left: 50%;
+  bottom: 5.8rem;
+  transform: translateX(-50%);
+  width: min(420px, calc(100vw - 2rem));
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  backdrop-filter: blur(10px);
+  padding: 0.55rem 0.75rem 0.7rem;
+  z-index: 6;
+}
+
+.learn-meter.hidden,
+.touch-pad.hidden {
+  display: none;
+}
+
+.learn-meter-top {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-display);
+  font-size: 0.58rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
+}
+
+.learn-track {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.learn-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), #e10600);
+  transition: width 0.12s linear;
+}
+
+.touch-pad {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  z-index: 8;
+}
+
+.touch-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.touch-btn {
+  width: 3.4rem;
+  height: 3.4rem;
+  border: 1px solid var(--panel-border);
+  background: rgba(10, 12, 18, 0.78);
+  color: var(--white);
+  font-size: 1.1rem;
+  border-radius: 4px;
+  touch-action: none;
+  user-select: none;
+}
+
+.touch-btn:active {
+  background: var(--red);
+  border-color: var(--red);
+}
+
 .help {
   position: absolute;
   right: 1.25rem;
@@ -255,6 +360,16 @@ canvas {
   backdrop-filter: blur(12px);
   padding: 0.9rem 1rem;
   border-radius: 2px;
+}
+
+@media (max-width: 760px) {
+  .help {
+    display: none;
+  }
+
+  .touch-pad:not(.hidden) {
+    display: flex;
+  }
 }
 
 .help h3 {

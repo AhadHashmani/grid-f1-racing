@@ -17,4 +17,5 @@ export const DEFAULT_CONTROL_POINTS: ControlPoint[] = [
 ];
 
 export const TRACK_WIDTH = 12;
-export const TRACK_SAMPLES = 280;
+/** Lower sample count + instanced props keeps first paint snappy. */
+export const TRACK_SAMPLES = 160;

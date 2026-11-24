@@ -161,14 +161,20 @@ export class FastTrack {
     return 1;
   }
 
-  getSpawn(lane = 0) {
-    const s = this.samples[Math.min(4, this.samples.length - 1)];
+  /** Lane = lateral offset; along = sample index offset so the swarm fans out. */
+  getSpawn(lane = 0, along = 0) {
+    const idx = Math.min(
+      this.samples.length - 1,
+      Math.max(0, 3 + along),
+    );
+    const s = this.samples[idx];
     const maxL = this.width * 0.25;
     const lateral = Math.max(-maxL, Math.min(maxL, lane * 1.5));
     return {
       x: s.x + s.nx * lateral,
       z: s.z + s.nz * lateral,
       yaw: Math.atan2(s.tx, s.tz),
+      progress: s.distance / Math.max(this.totalLength, 1),
     };
   }
 

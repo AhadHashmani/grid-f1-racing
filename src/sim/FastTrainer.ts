@@ -67,24 +67,30 @@ export class FastTrainer {
       } else {
         brain = new FastBrain(FAST_INPUTS, 16, 3);
       }
-      this.agents.push(this.spawn(brain, (i % 5) - 2));
+      this.agents.push(this.spawn(brain, (i % 5) - 2, i));
     }
     this.frame = 0;
     this.leaderIndex = 0;
   }
 
-  private spawn(brain: FastBrain, lane: number): AgentState {
-    const s = this.track.getSpawn(lane);
+  private spawn(brain: FastBrain, lane: number, gridIndex = 0): AgentState {
+    // Small stagger so the swarm is readable without skipping early checkpoints
+    const along = gridIndex % 4;
+    const s = this.track.getSpawn(lane, along);
+    let checkpoint = 0;
+    while (checkpoint < this.checkpoints.length && s.progress >= this.checkpoints[checkpoint]) {
+      checkpoint += 1;
+    }
     return {
       brain,
       x: s.x,
       z: s.z,
       yaw: s.yaw,
-      speed: 5,
+      speed: 5 + (gridIndex % 3),
       alive: true,
-      progress: 0,
-      bestProgress: 0,
-      checkpoint: 0,
+      progress: s.progress,
+      bestProgress: s.progress,
+      checkpoint,
       laps: 0,
       score: 0,
       lastCpFrame: 0,
@@ -300,13 +306,13 @@ export class FastTrainer {
 
     // Preserve elite brains + their crash memories untouched
     for (let i = 0; i < Math.min(4, elites.length); i++) {
-      next.push(this.spawn(elites[i].brain.clone(), (i % 5) - 2));
+      next.push(this.spawn(elites[i].brain.clone(), (i % 5) - 2, i));
     }
     for (let i = 0; i < 5; i++) {
       const b = FastBrain.centerlineSeed(FAST_INPUTS);
       if (this.champion) b.crashBook.merge(this.champion.crashBook);
       b.mutate(0.05 + i * 0.035);
-      next.push(this.spawn(b, (i % 5) - 2));
+      next.push(this.spawn(b, (i % 5) - 2, next.length));
     }
     while (next.length < this.population - 2) {
       const p1 = elites[Math.floor(Math.random() * elites.length)].brain;
@@ -314,12 +320,12 @@ export class FastTrainer {
       const child = Math.random() < 0.65 ? FastBrain.crossover(p1, p2) : p1.clone();
       // Mild mutate — keep crash lessons intact
       child.mutate(0.04 + Math.random() * 0.22);
-      next.push(this.spawn(child, (next.length % 5) - 2));
+      next.push(this.spawn(child, (next.length % 5) - 2, next.length));
     }
     while (next.length < this.population) {
       const fresh = new FastBrain(FAST_INPUTS, 16, 3);
       if (this.champion) fresh.crashBook.merge(this.champion.crashBook);
-      next.push(this.spawn(fresh, (next.length % 5) - 2));
+      next.push(this.spawn(fresh, (next.length % 5) - 2, next.length));
     }
     this.agents = next;
     this.frame = 0;
