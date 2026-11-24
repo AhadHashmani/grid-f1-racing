@@ -50,6 +50,7 @@ canvas {
   z-index: 100;
 }
 
+#ui .top-bar,
 #ui button,
 #ui .mode-bar,
 #ui .overlay,
@@ -57,7 +58,8 @@ canvas {
 #ui .overlay-actions,
 #ui .help,
 #ui .hud,
-#ui .edit-coach {
+#ui .edit-coach,
+#ui .train-actions {
   pointer-events: auto;
 }
 
@@ -291,6 +293,7 @@ canvas {
 .overlay {
   position: absolute;
   inset: 0;
+  z-index: 250;
   display: grid;
   place-items: center;
   background:
@@ -307,6 +310,12 @@ canvas {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
+}
+
+.overlay.visible .overlay-card,
+.overlay.visible .action-btn {
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .overlay-card {

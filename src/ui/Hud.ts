@@ -15,21 +15,37 @@ export class Hud {
   private editCoach!: HTMLElement;
   private onMode: ((mode: GameMode) => void) | null = null;
   private onAction: ((action: string) => void) | null = null;
+  private lastFireAt = 0;
 
   constructor(parent: HTMLElement) {
     this.root = document.createElement("div");
     this.root.id = "ui";
     parent.appendChild(this.root);
     this.renderShell();
-    this.root.addEventListener("click", this.onRootClick, true);
+    this.root.addEventListener("click", this.onRootPointer, true);
   }
 
   setHandlers(onMode: (mode: GameMode) => void, onAction: (action: string) => void) {
     this.onMode = onMode;
     this.onAction = onAction;
+    this.bindButtons();
   }
 
-  private onRootClick = (event: MouseEvent) => {
+  private fireAction(action: string) {
+    const now = performance.now();
+    if (now - this.lastFireAt < 280) return;
+    this.lastFireAt = now;
+    this.onAction?.(action);
+  }
+
+  private fireMode(mode: GameMode) {
+    const now = performance.now();
+    if (now - this.lastFireAt < 280) return;
+    this.lastFireAt = now;
+    this.onMode?.(mode);
+  }
+
+  private onRootPointer = (event: Event) => {
     const target = event.target as HTMLElement | null;
     if (!target) return;
 
@@ -37,7 +53,7 @@ export class Hud {
     if (actionBtn?.dataset.action) {
       event.preventDefault();
       event.stopPropagation();
-      this.onAction?.(actionBtn.dataset.action);
+      this.fireAction(actionBtn.dataset.action);
       return;
     }
 
@@ -45,9 +61,25 @@ export class Hud {
     if (modeBtn?.dataset.mode) {
       event.preventDefault();
       event.stopPropagation();
-      this.onMode?.(modeBtn.dataset.mode as GameMode);
+      this.fireMode(modeBtn.dataset.mode as GameMode);
     }
   };
+
+  /** Direct listeners — backup if delegated hits miss under WebGL overlays. */
+  private bindButtons() {
+    this.root.querySelectorAll<HTMLElement>("[data-action], [data-mode]").forEach((el) => {
+      if ((el as HTMLElement & { __gridBound?: boolean }).__gridBound) return;
+      (el as HTMLElement & { __gridBound?: boolean }).__gridBound = true;
+      el.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const action = el.dataset.action;
+        const mode = el.dataset.mode;
+        if (action) this.fireAction(action);
+        else if (mode) this.fireMode(mode as GameMode);
+      });
+    });
+  }
 
   private renderShell() {
     this.root.innerHTML = `
@@ -145,6 +177,7 @@ export class Hud {
     this.root.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((btn) => {
       this.modeButtons[btn.dataset.mode!] = btn;
     });
+    this.bindButtons();
   }
 
   setMode(mode: GameMode) {
@@ -181,6 +214,7 @@ export class Hud {
           <button type="button" class="action-btn primary" data-action="watch-champ">Watch Champ</button>
         `;
         this.helpEl.appendChild(actions);
+        this.bindButtons();
       }
     } else if (mode === "race") {
       this.helpTitle.textContent = "Race controls";
@@ -247,6 +281,7 @@ export class Hud {
       </div>
     `;
     this.overlay.classList.add("visible");
+    this.bindButtons();
   }
 
   hideOverlay() {

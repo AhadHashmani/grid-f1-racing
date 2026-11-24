@@ -433,9 +433,13 @@ export class Game {
 
     if (this.mode === "train") {
       alive = this.trainer.getAliveCount();
-      const lead = this.trainer.fast?.agents[this.trainer.fast.leaderIndex];
+      const agents = this.trainer.fast?.agents;
+      const lead = agents?.[this.trainer.fast!.leaderIndex];
       lap = lead?.laps ?? 0;
       speed = lead?.speed ?? 0;
+      if (agents?.length) {
+        best = Math.max(best, ...agents.map((a) => a.score));
+      }
     } else if (this.mode === "watch" && this.watchCar) {
       alive = this.watchCar.alive ? 1 : 0;
       lap = this.watchCar.lapCount;
