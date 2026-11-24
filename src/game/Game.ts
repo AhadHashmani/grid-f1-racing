@@ -6,6 +6,8 @@ import { ChaseCamera } from "../camera/ChaseCamera";
 import { Car } from "../car/Car";
 import { Input } from "../input/Input";
 import type { FastBrain } from "../sim/FastBrain";
+import { FastTrack } from "../sim/FastTrack";
+import { DRIVE } from "../sim/driveParams";
 import { Track } from "../track/Track";
 import { TrackEditor } from "../track/TrackEditor";
 import { DEFAULT_CONTROL_POINTS } from "../track/defaultTrack";
@@ -41,6 +43,8 @@ export class Game {
   private leaderPulse = 0;
   private sensorRays = new SensorRays(11);
   private senseBuf = new Float32Array(11);
+  /** Same geometry the brains trained on — used for race/watch sensing. */
+  private driveTrack: FastTrack | null = null;
   private colors = [0xe10600, 0x00d2be, 0xff8700, 0x3b82f6, 0xa855f7, 0xf43f5e, 0x22c55e, 0xeab308];
 
   constructor(container: HTMLElement) {
@@ -180,10 +184,15 @@ export class Game {
     this.chase.camera.updateProjectionMatrix();
   }
 
+  private refreshDriveTrack() {
+    this.driveTrack = new FastTrack(this.track.controlPoints, this.track.width);
+  }
+
   private beginTraining(forceFresh: boolean) {
     const hash = this.track.hashLayout();
     this.trainer.setTrackHash(hash);
     this.trainer.startForCurrentTrack(this.track.controlPoints, this.track.width, hash, forceFresh);
+    this.refreshDriveTrack();
     this.trackDirty = false;
     this.mode = "train";
     this.hud.hideOverlay();
@@ -231,13 +240,14 @@ export class Game {
     }
 
     if (mode === "watch") {
+      this.refreshDriveTrack();
       const brain = this.trainer.champion ?? this.trainer.loadChampionBrain();
       if (!brain) {
         this.beginTraining(true);
         this.trainer.quickTrain();
       }
       this.watchBrain = (this.trainer.champion ?? this.trainer.loadChampionBrain())!.clone();
-      this.watchCar = new Car(0xe10600);
+      this.watchCar = new Car(0xe10600, DRIVE.maxSpeed, DRIVE.rotSpeed, DRIVE.accel);
       this.watchCar.reset(this.track, 0);
       this.carGroup.add(this.watchCar.mesh);
       this.chase.update(this.watchCar, 1);
@@ -250,16 +260,19 @@ export class Game {
 
   private startRace() {
     this.trainer.setTrackHash(this.track.hashLayout());
+    this.refreshDriveTrack();
     let brain = this.trainer.champion ?? this.trainer.loadChampionBrain();
     const trained = brain != null;
     if (!brain) {
       this.trainer.startForCurrentTrack(this.track.controlPoints, this.track.width, this.track.hashLayout(), true);
+      this.hud.showBanner("TRAINING RIVAL…", 1200);
       this.trainer.quickTrain();
       brain = this.trainer.champion;
     }
 
-    this.player = new Car(0xe10600, 24, 2.9, 16);
-    this.rival = new Car(0x00d2be, 24, 2.9, 16);
+    // Player gets a slight human feel; rival uses exact training drive params
+    this.player = new Car(0xe10600, DRIVE.maxSpeed * 1.05, DRIVE.rotSpeed, DRIVE.accel);
+    this.rival = new Car(0x00d2be, DRIVE.maxSpeed, DRIVE.rotSpeed, DRIVE.accel);
     this.rivalBrain = brain ? brain.clone() : null;
     this.player.reset(this.track, -1);
     this.rival.reset(this.track, 1);
@@ -317,7 +330,15 @@ export class Game {
 
     const lead = agents[leader];
     if (lead?.alive) {
-      senseForDisplay(lead.x, lead.z, lead.yaw, lead.speed, this.track, this.senseBuf);
+      senseForDisplay(
+        lead.x,
+        lead.z,
+        lead.yaw,
+        lead.speed,
+        this.track,
+        this.senseBuf,
+        this.trainer.fast?.track ?? this.driveTrack,
+      );
       this.sensorRays.update(lead.x, 0.35, lead.z, lead.yaw, this.senseBuf);
       this.sensorRays.setVisible(true);
     } else {
@@ -389,7 +410,7 @@ export class Game {
 
   private updateWatch(dt: number) {
     if (!this.watchCar || !this.watchBrain) return;
-    driveWithFastBrain(this.watchCar, this.watchBrain, this.track, dt);
+    driveWithFastBrain(this.watchCar, this.watchBrain, this.track, dt, this.driveTrack);
     this.watchCar.updateRaceProgress(this.track, this.checkpoints, Math.floor(this.sessionTime * 60), false);
     if (!this.watchCar.alive || this.watchCar.lapCount >= 1) {
       this.watchCar.reset(this.track, 0);
@@ -405,7 +426,7 @@ export class Game {
     this.player.updateRaceProgress(this.track, this.checkpoints, Math.floor(this.sessionTime * 60), false);
 
     if (this.rival.alive && this.rivalBrain) {
-      driveWithFastBrain(this.rival, this.rivalBrain, this.track, dt);
+      driveWithFastBrain(this.rival, this.rivalBrain, this.track, dt, this.driveTrack);
       this.rival.updateRaceProgress(this.track, this.checkpoints, Math.floor(this.sessionTime * 60), false);
     }
 

@@ -1,5 +1,6 @@
 import { FastBrain } from "./FastBrain";
 import { FastTrack } from "./FastTrack";
+import { DRIVE } from "./driveParams";
 
 export type AgentState = {
   brain: FastBrain;
@@ -19,7 +20,7 @@ export type AgentState = {
   crashed: boolean;
 };
 
-const RAYS = 11;
+const RAYS = DRIVE.rayCount;
 export const FAST_INPUTS = RAYS + 3;
 
 export class FastTrainer {
@@ -108,12 +109,11 @@ export class FastTrainer {
   }
 
   private sense(a: AgentState) {
-    const spread = Math.PI * 0.9;
     for (let i = 0; i < RAYS; i++) {
       const t = i / (RAYS - 1);
-      const rel = spread / 2 - spread * t;
+      const rel = DRIVE.raySpread / 2 - DRIVE.raySpread * t;
       const ang = a.yaw + rel;
-      this.input[i] = this.track.raycast(a.x, a.z, Math.sin(ang), Math.cos(ang), 28);
+      this.input[i] = this.track.raycast(a.x, a.z, Math.sin(ang), Math.cos(ang), DRIVE.rayRange);
     }
     const proj = this.track.project(a.x, a.z);
     this.input[RAYS] = Math.min(1, a.speed / 22);
@@ -134,21 +134,24 @@ export class FastTrainer {
     const brake = this.out[2];
     a.lastSteer = steer;
 
-    const accel = 20;
-    const maxSpeed = 21;
-    if (brake > 0.55 && throttle < 0.45) {
-      a.speed = Math.max(0, a.speed - accel * 1.6 * dt);
+    const accel = DRIVE.accel;
+    const maxSpeed = DRIVE.maxSpeed;
+    if (brake > DRIVE.brakeThresh && throttle < DRIVE.throttleThresh) {
+      a.speed = Math.max(0, a.speed - accel * DRIVE.brakeMult * dt);
     } else {
-      a.speed += accel * Math.max(0.15, throttle) * dt;
+      a.speed += accel * Math.max(DRIVE.minThrottle, throttle) * dt;
       a.speed = Math.min(maxSpeed, a.speed);
-      a.speed = Math.max(0, a.speed - accel * 0.08 * dt);
+      a.speed = Math.max(0, a.speed - accel * DRIVE.drag * dt);
     }
 
     const front = this.input[Math.floor(RAYS / 2)];
-    if (front < 0.35) a.speed = Math.min(a.speed, 8 + front * 20);
+    if (front < DRIVE.frontSlow) {
+      a.speed = Math.min(a.speed, DRIVE.frontMin + front * DRIVE.frontScale);
+    }
 
-    const steerFactor = 0.45 + 0.55 * Math.min(1, Math.abs(a.speed) / maxSpeed);
-    a.yaw += steer * 3.4 * steerFactor * dt;
+    const steerFactor =
+      DRIVE.steerBase + DRIVE.steerSpeed * Math.min(1, Math.abs(a.speed) / maxSpeed);
+    a.yaw += steer * DRIVE.rotSpeed * steerFactor * dt;
     a.x += Math.sin(a.yaw) * a.speed * dt;
     a.z += Math.cos(a.yaw) * a.speed * dt;
     a.framesAlive += 1;

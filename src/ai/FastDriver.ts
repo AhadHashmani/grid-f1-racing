@@ -1,40 +1,101 @@
 import * as THREE from "three";
 import type { Car } from "../car/Car";
 import type { FastBrain } from "../sim/FastBrain";
+import { DRIVE } from "../sim/driveParams";
+import type { FastTrack } from "../sim/FastTrack";
 import type { Track } from "../track/Track";
 
-const RAYS = 11;
-const input = new Float32Array(RAYS + 3);
+const input = new Float32Array(DRIVE.rayCount + 3);
 const out = new Float32Array(3);
 
-/** Drive a visual Car with a FastBrain using the rendered Track. */
-export function driveWithFastBrain(car: Car, brain: FastBrain, track: Track, dt: number) {
+function fillSense(
+  x: number,
+  z: number,
+  yaw: number,
+  speed: number,
+  width: number,
+  lateral: number,
+  tx: number,
+  tz: number,
+  rayFn: (ox: number, oz: number, dx: number, dz: number) => number,
+) {
+  const rays = DRIVE.rayCount;
+  for (let i = 0; i < rays; i++) {
+    const t = i / (rays - 1);
+    const rel = DRIVE.raySpread / 2 - DRIVE.raySpread * t;
+    const ang = yaw + rel;
+    input[i] = rayFn(x, z, Math.sin(ang), Math.cos(ang));
+  }
+  input[rays] = Math.min(1, speed / 22);
+  input[rays + 1] = Math.max(-1, Math.min(1, lateral / (width * 0.5)));
+  input[rays + 2] = Math.sin(yaw) * tx + Math.cos(yaw) * tz;
+}
+
+/** Drive a visual Car with a FastBrain — prefer FastTrack sensing (same as training). */
+export function driveWithFastBrain(
+  car: Car,
+  brain: FastBrain,
+  track: Track,
+  dt: number,
+  fastTrack?: FastTrack | null,
+) {
   if (!car.alive) return;
 
-  const origin = car.position;
-  const spread = Math.PI * 0.9;
-  for (let i = 0; i < RAYS; i++) {
-    const t = i / (RAYS - 1);
-    const rel = spread / 2 - spread * t;
-    const ang = car.yaw + rel;
-    const dir = new THREE.Vector3(Math.sin(ang), 0, Math.cos(ang));
-    input[i] = track.raycast(origin, dir, 28);
+  let progress = 0;
+  let lateral = 0;
+  let front = 1;
+
+  if (fastTrack) {
+    const proj = fastTrack.project(car.position.x, car.position.z);
+    progress = proj.progress;
+    lateral = proj.lateral;
+    fillSense(
+      car.position.x,
+      car.position.z,
+      car.yaw,
+      car.speed,
+      fastTrack.width,
+      proj.lateral,
+      proj.tx,
+      proj.tz,
+      (ox, oz, dx, dz) => fastTrack.raycast(ox, oz, dx, dz, DRIVE.rayRange),
+    );
+    if (!proj.onTrack) {
+      car.alive = false;
+      car.setGhost(true);
+      return;
+    }
+  } else {
+    const origin = car.position;
+    const proj = track.project(origin);
+    progress = proj.progress;
+    lateral = proj.lateral;
+    const sample = track.samples[proj.index];
+    fillSense(
+      origin.x,
+      origin.z,
+      car.yaw,
+      car.speed,
+      track.width,
+      proj.lateral,
+      sample.tangent.x,
+      sample.tangent.z,
+      (ox, oz, dx, dz) =>
+        track.raycast(new THREE.Vector3(ox, 0.35, oz), new THREE.Vector3(dx, 0, dz), DRIVE.rayRange),
+    );
+    if (!proj.onTrack) {
+      car.alive = false;
+      car.setGhost(true);
+      return;
+    }
   }
-  const proj = track.project(origin);
-  input[RAYS] = Math.min(1, car.speed / 22);
-  input[RAYS + 1] = Math.max(-1, Math.min(1, proj.lateral / (track.width * 0.5)));
-  const sample = track.samples[proj.index];
-  input[RAYS + 2] = Math.sin(car.yaw) * sample.tangent.x + Math.cos(car.yaw) * sample.tangent.z;
 
   brain.think(input, out);
-  // Apply crash lessons so the champion never repeats known mistakes
-  brain.crashBook.apply(proj.progress, proj.lateral, input[5], out);
-
-  // Match FastTrainer corner slowdown so race rivals behave like training
-  const front = input[Math.floor(RAYS / 2)];
+  brain.crashBook.apply(progress, lateral, input[5], out);
+  front = input[Math.floor(DRIVE.rayCount / 2)];
   car.applyAnalog(out[0], out[1], out[2], dt);
-  if (front < 0.35) {
-    car.speed = Math.min(car.speed, 8 + front * 20);
+  if (front < DRIVE.frontSlow) {
+    car.speed = Math.min(car.speed, DRIVE.frontMin + front * DRIVE.frontScale);
   }
 }
 
@@ -46,15 +107,22 @@ export function senseForDisplay(
   speed: number,
   track: Track,
   outDistances: Float32Array,
+  fastTrack?: FastTrack | null,
 ): void {
-  const origin = new THREE.Vector3(x, 0.35, z);
-  const spread = Math.PI * 0.9;
-  for (let i = 0; i < RAYS; i++) {
-    const t = i / (RAYS - 1);
-    const rel = spread / 2 - spread * t;
+  const rays = DRIVE.rayCount;
+  for (let i = 0; i < rays; i++) {
+    const t = i / (rays - 1);
+    const rel = DRIVE.raySpread / 2 - DRIVE.raySpread * t;
     const ang = yaw + rel;
-    const dir = new THREE.Vector3(Math.sin(ang), 0, Math.cos(ang));
-    outDistances[i] = track.raycast(origin, dir, 28);
+    if (fastTrack) {
+      outDistances[i] = fastTrack.raycast(x, z, Math.sin(ang), Math.cos(ang), DRIVE.rayRange);
+    } else {
+      outDistances[i] = track.raycast(
+        new THREE.Vector3(x, 0.35, z),
+        new THREE.Vector3(Math.sin(ang), 0, Math.cos(ang)),
+        DRIVE.rayRange,
+      );
+    }
   }
   void speed;
 }

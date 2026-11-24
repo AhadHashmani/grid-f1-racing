@@ -23,6 +23,7 @@ export class Trainer {
   private population = 24;
   private maxFrames = 2400;
   private lapAnnounced = false;
+  private lastSyncedGen = -1;
 
   setTrackHash(hash: string) {
     this.trackHash = hash;
@@ -129,7 +130,7 @@ export class Trainer {
     if (lapComplete) this.lapAnnounced = true;
     if (generationDone) this.lapAnnounced = false;
 
-    this.syncStats();
+    this.syncStats(generationDone || justLapped);
     if (lapComplete && this.champion) this.persist();
 
     return {
@@ -152,11 +153,17 @@ export class Trainer {
     return r;
   }
 
-  private syncStats() {
+  private syncStats(forceClone = true) {
     if (!this.fast) return;
     this.generation = this.fast.generation;
     this.bestScore = this.fast.bestScore;
-    this.champion = this.fast.champion ? this.fast.champion.clone() : null;
+    // Avoid cloning the champion every physics burst — only on gen change / persist
+    if (forceClone || this.generation !== this.lastSyncedGen) {
+      this.champion = this.fast.champion ? this.fast.champion.clone() : null;
+      this.lastSyncedGen = this.generation;
+    } else if (this.fast.champion && !this.champion) {
+      this.champion = this.fast.champion.clone();
+    }
   }
 
   persist() {

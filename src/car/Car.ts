@@ -1,6 +1,5 @@
 import * as THREE from "three";
-import { NeuralNetwork } from "../ai/Network";
-import { Sensor } from "../ai/Sensor";
+import { DRIVE } from "../sim/driveParams";
 import type { Track } from "../track/Track";
 import { createF1CarMesh } from "./CarMesh";
 
@@ -25,8 +24,6 @@ export class Car {
   frameOfLastCp = 0;
   lastProgress = 0;
   bestProgress = 0;
-  sensor: Sensor;
-  brain: NeuralNetwork;
   maxSpeed: number;
   rotSpeed: number;
   acceleration: number;
@@ -37,9 +34,9 @@ export class Car {
 
   constructor(
     color = 0xe10600,
-    maxSpeed = 22,
-    rotSpeed = 3.1,
-    acceleration = 16,
+    maxSpeed: number = DRIVE.maxSpeed,
+    rotSpeed: number = DRIVE.rotSpeed,
+    acceleration: number = DRIVE.accel,
     detailed = true,
   ) {
     this.color = color;
@@ -47,8 +44,6 @@ export class Car {
     this.rotSpeed = rotSpeed;
     this.acceleration = acceleration;
     this.mesh = createF1CarMesh(color, detailed);
-    this.sensor = new Sensor(this);
-    this.brain = new NeuralNetwork([this.sensor.rayCount, 28, 4]);
     this.cacheMaterials();
   }
 
@@ -124,34 +119,20 @@ export class Car {
     this.syncMesh();
   }
 
-  applyAiOutputs(outputs: ArrayLike<number>, dt: number) {
-    const forward = (outputs[0] ?? 0) > 0.45;
-    const left = (outputs[1] ?? 0) > 0.45;
-    const right = (outputs[2] ?? 0) > 0.45;
-    const backward = (outputs[3] ?? 0) > 0.55;
-
-    const anySteer = left || right;
-    this.applyControls(
-      {
-        forward: forward || (!backward && !anySteer) || (anySteer && !backward),
-        left: left && !right,
-        right: right && !left,
-        backward: backward && !forward,
-      },
-      dt,
-    );
-  }
-
-  /** Continuous controls from FastBrain: throttle 0..1, steer -1..1, brake 0..1 */
+  /** Continuous controls — same formulas as FastTrainer.stepAgent. */
   applyAnalog(throttle: number, steer: number, brake: number, dt: number) {
     if (!this.alive) return;
-    if (brake > 0.6 && throttle < 0.4) {
-      this.speed = Math.max(0, this.speed - this.acceleration * 1.5 * dt);
+    if (brake > DRIVE.brakeThresh && throttle < DRIVE.throttleThresh) {
+      this.speed = Math.max(0, this.speed - this.acceleration * DRIVE.brakeMult * dt);
     } else {
-      this.speed = Math.min(this.maxSpeed, this.speed + this.acceleration * Math.max(0.12, throttle) * dt);
-      this.speed = Math.max(0, this.speed - this.acceleration * 0.08 * dt);
+      this.speed = Math.min(
+        this.maxSpeed,
+        this.speed + this.acceleration * Math.max(DRIVE.minThrottle, throttle) * dt,
+      );
+      this.speed = Math.max(0, this.speed - this.acceleration * DRIVE.drag * dt);
     }
-    const steerFactor = 0.4 + 0.6 * Math.min(1, Math.abs(this.speed) / this.maxSpeed);
+    const steerFactor =
+      DRIVE.steerBase + DRIVE.steerSpeed * Math.min(1, Math.abs(this.speed) / this.maxSpeed);
     this.yaw += steer * this.rotSpeed * steerFactor * dt;
     this.position.x += Math.sin(this.yaw) * this.speed * dt;
     this.position.z += Math.cos(this.yaw) * this.speed * dt;
@@ -232,16 +213,4 @@ export class Car {
       continuous;
   }
 
-  checkStuck(frame: number, maxIdle = 420) {
-    if (frame - this.frameOfLastCp > maxIdle) {
-      this.alive = false;
-      this.setGhost(true);
-    }
-  }
-
-  cloneBrainCar(color?: number): Car {
-    const car = new Car(color ?? this.color, this.maxSpeed, this.rotSpeed, this.acceleration);
-    car.brain = this.brain.clone();
-    return car;
-  }
 }
