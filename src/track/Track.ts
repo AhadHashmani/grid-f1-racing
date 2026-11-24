@@ -161,7 +161,7 @@ export class Track {
       metalness: 0.08,
     });
     this.roadMesh = new THREE.Mesh(roadGeo, roadMat);
-    this.roadMesh.receiveShadow = true;
+    this.roadMesh.receiveShadow = false;
     this.meshGroup.add(this.roadMesh);
 
     // Center dashed line
@@ -190,7 +190,7 @@ export class Track {
         );
         kerb.position.copy(edge).setY(0.06);
         kerb.lookAt(edge.clone().add(s.tangent));
-        kerb.castShadow = true;
+        kerb.castShadow = false;
         this.kerbMeshes.push(kerb);
         this.meshGroup.add(kerb);
       }
@@ -209,8 +209,8 @@ export class Track {
         const wall = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.1, 2.1), wallMat);
         wall.position.copy(pos).setY(0.55);
         wall.lookAt(pos.clone().add(s.tangent));
-        wall.castShadow = true;
-        wall.receiveShadow = true;
+        wall.castShadow = false;
+        wall.receiveShadow = false;
         this.wallMeshes.push(wall);
         this.meshGroup.add(wall);
       }

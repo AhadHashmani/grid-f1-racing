@@ -15,6 +15,8 @@ export type AgentState = {
   score: number;
   lastCpFrame: number;
   framesAlive: number;
+  lastSteer: number;
+  crashed: boolean;
 };
 
 const RAYS = 11;
@@ -30,10 +32,13 @@ export class FastTrainer {
   checkpoints: number[];
   frame = 0;
   champion: FastBrain | null = null;
+  /** Index of the current generation leader (highest score / progress). */
+  leaderIndex = 0;
   private out = new Float32Array(3);
   private input = new Float32Array(FAST_INPUTS);
+  private finishedLapThisGen = false;
 
-  constructor(track: FastTrack, population = 36, maxFrames = 1400) {
+  constructor(track: FastTrack, population = 24, maxFrames = 2400) {
     this.track = track;
     this.population = population;
     this.maxFrames = maxFrames;
@@ -44,6 +49,7 @@ export class FastTrainer {
 
   resetPopulation(seeded = true) {
     this.agents = [];
+    this.finishedLapThisGen = false;
     for (let i = 0; i < this.population; i++) {
       let brain: FastBrain;
       if (seeded && i < 8) {
@@ -53,10 +59,10 @@ export class FastTrainer {
         if (i < 3) brain = this.champion.clone();
         else if (i % 2 === 0) {
           brain = FastBrain.crossover(this.champion, this.champion);
-          brain.mutate(0.1 + Math.random() * 0.2);
+          brain.mutate(0.08 + Math.random() * 0.18);
         } else {
           brain = this.champion.clone();
-          brain.mutate(0.07 + Math.random() * 0.22);
+          brain.mutate(0.06 + Math.random() * 0.2);
         }
       } else {
         brain = new FastBrain(FAST_INPUTS, 16, 3);
@@ -64,6 +70,7 @@ export class FastTrainer {
       this.agents.push(this.spawn(brain, (i % 5) - 2));
     }
     this.frame = 0;
+    this.leaderIndex = 0;
   }
 
   private spawn(brain: FastBrain, lane: number): AgentState {
@@ -73,7 +80,7 @@ export class FastTrainer {
       x: s.x,
       z: s.z,
       yaw: s.yaw,
-      speed: 4,
+      speed: 5,
       alive: true,
       progress: 0,
       bestProgress: 0,
@@ -82,6 +89,8 @@ export class FastTrainer {
       score: 0,
       lastCpFrame: 0,
       framesAlive: 0,
+      lastSteer: 0,
+      crashed: false,
     };
   }
 
@@ -104,19 +113,24 @@ export class FastTrainer {
     this.input[RAYS] = Math.min(1, a.speed / 22);
     this.input[RAYS + 1] = Math.max(-1, Math.min(1, proj.lateral / (this.track.width * 0.5)));
     this.input[RAYS + 2] = Math.sin(a.yaw) * proj.tx + Math.cos(a.yaw) * proj.tz;
+    return proj;
   }
 
   private stepAgent(a: AgentState, dt: number) {
     if (!a.alive) return;
-    this.sense(a);
+    const proj0 = this.sense(a);
     a.brain.think(this.input, this.out);
+    // Never repeat a known crash pattern for this bot
+    a.brain.crashBook.apply(proj0.progress, proj0.lateral, this.input[5], this.out);
+
     const throttle = this.out[0];
     const steer = this.out[1];
     const brake = this.out[2];
+    a.lastSteer = steer;
 
     const accel = 20;
     const maxSpeed = 21;
-    if (brake > 0.6 && throttle < 0.4) {
+    if (brake > 0.55 && throttle < 0.45) {
       a.speed = Math.max(0, a.speed - accel * 1.6 * dt);
     } else {
       a.speed += accel * Math.max(0.15, throttle) * dt;
@@ -124,7 +138,6 @@ export class FastTrainer {
       a.speed = Math.max(0, a.speed - accel * 0.08 * dt);
     }
 
-    // Corner slowdown from front rays helps survival
     const front = this.input[Math.floor(RAYS / 2)];
     if (front < 0.35) a.speed = Math.min(a.speed, 8 + front * 20);
 
@@ -136,17 +149,12 @@ export class FastTrainer {
 
     const proj = this.track.project(a.x, a.z);
     if (!proj.onTrack) {
-      // tiny grace nudge once
-      if (a.framesAlive % 7 === 0 && Math.abs(proj.lateral) < this.track.width * 0.72) {
-        const s = this.track.samples[proj.index];
-        a.x = s.x;
-        a.z = s.z;
-        a.speed *= 0.5;
-      } else {
-        a.alive = false;
-        this.score(a, proj.progress);
-        return;
-      }
+      a.alive = false;
+      a.crashed = true;
+      // Machine learning: this bot remembers and never repeats this crash
+      a.brain.learnFromCrash(this.input, a.lastSteer, proj.progress, proj.lateral);
+      this.score(a, proj.progress);
+      return;
     }
 
     const prev = a.progress;
@@ -163,13 +171,13 @@ export class FastTrainer {
         a.lastCpFrame = this.frame;
       }
 
-      // Lap: cleared enough track then crossed start, OR full CP clear + wrap
       const cleared = a.checkpoint >= Math.floor(this.checkpoints.length * 0.92);
       if (wrapped && (cleared || a.checkpoint >= this.checkpoints.length)) {
         a.laps += 1;
         a.checkpoint = 0;
         a.lastCpFrame = this.frame;
         a.bestProgress += 1;
+        this.finishedLapThisGen = true;
       }
       a.bestProgress = Math.max(a.bestProgress, a.laps + proj.progress);
     }
@@ -178,7 +186,10 @@ export class FastTrainer {
     a.progress = proj.progress;
     this.score(a, proj.progress, centerBonus, a.speed);
 
-    if (this.frame - a.lastCpFrame > 420) a.alive = false;
+    if (this.frame - a.lastCpFrame > 480) {
+      a.alive = false;
+      a.crashed = true;
+    }
   }
 
   private score(a: AgentState, progress: number, center = 0.5, speed = 0) {
@@ -191,9 +202,72 @@ export class FastTrainer {
       Math.min(0.15, speed / 120);
   }
 
+  private updateLeader() {
+    let best = -1;
+    let idx = 0;
+    for (let i = 0; i < this.agents.length; i++) {
+      const s = this.agents[i].score;
+      if (s > best) {
+        best = s;
+        idx = i;
+      }
+    }
+    this.leaderIndex = idx;
+  }
+
+  /**
+   * Visible training step — advances physics one tick for every car.
+   * Call several times per render frame for snappy motion.
+   */
+  liveStep(dt = 1 / 48): {
+    generationDone: boolean;
+    lapComplete: boolean;
+    alive: number;
+    leaderIndex: number;
+  } {
+    if (!this.agents.length) this.resetPopulation(true);
+    this.frame += 1;
+    let alive = 0;
+    for (const a of this.agents) {
+      this.stepAgent(a, dt);
+      if (a.alive) alive += 1;
+    }
+    this.updateLeader();
+
+    const lapComplete = this.finishedLapThisGen;
+    const timedOut = this.frame >= this.maxFrames;
+    const extinct = alive === 0;
+    // Let a lap-finisher celebrate briefly before breeding
+    const generationDone =
+      extinct || timedOut || (lapComplete && this.frame > 90 && alive <= Math.max(2, this.population * 0.15));
+
+    if (generationDone) {
+      this.finishGeneration();
+    }
+
+    return {
+      generationDone,
+      lapComplete,
+      alive,
+      leaderIndex: this.leaderIndex,
+    };
+  }
+
+  private finishGeneration() {
+    this.agents.sort((a, b) => b.score - a.score);
+    const best = this.agents[0];
+    if (best.score > this.bestScore) this.bestScore = best.score;
+    this.champion = best.brain.clone();
+    this.breedNext();
+    this.generation += 1;
+    this.finishedLapThisGen = false;
+    this.leaderIndex = 0;
+  }
+
   runGeneration(): { best: number; laps: number; frames: number } {
     if (!this.agents.length) this.resetPopulation(true);
     this.frame = 0;
+    this.finishedLapThisGen = false;
     const dt = 1 / 36;
 
     while (this.frame < this.maxFrames) {
@@ -205,7 +279,6 @@ export class FastTrainer {
         if (a.alive) alive += 1;
         if (a.laps >= 1) finished = true;
       }
-      // Early stop when swarm is mostly dead and nobody is close to finishing
       if (finished) break;
       if (alive === 0) break;
       if (alive <= 2 && this.frame > 500) break;
@@ -222,26 +295,31 @@ export class FastTrainer {
   }
 
   private breedNext() {
-    const elites = this.agents.slice(0, Math.max(4, Math.floor(this.population * 0.2)));
+    const elites = this.agents.slice(0, Math.max(4, Math.floor(this.population * 0.25)));
     const next: AgentState[] = [];
 
+    // Preserve elite brains + their crash memories untouched
     for (let i = 0; i < Math.min(4, elites.length); i++) {
       next.push(this.spawn(elites[i].brain.clone(), (i % 5) - 2));
     }
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 5; i++) {
       const b = FastBrain.centerlineSeed(FAST_INPUTS);
-      b.mutate(0.06 + i * 0.04);
+      if (this.champion) b.crashBook.merge(this.champion.crashBook);
+      b.mutate(0.05 + i * 0.035);
       next.push(this.spawn(b, (i % 5) - 2));
     }
-    while (next.length < this.population - 3) {
+    while (next.length < this.population - 2) {
       const p1 = elites[Math.floor(Math.random() * elites.length)].brain;
       const p2 = elites[Math.floor(Math.random() * elites.length)].brain;
-      const child = Math.random() < 0.6 ? FastBrain.crossover(p1, p2) : p1.clone();
-      child.mutate(0.05 + Math.random() * 0.3);
+      const child = Math.random() < 0.65 ? FastBrain.crossover(p1, p2) : p1.clone();
+      // Mild mutate — keep crash lessons intact
+      child.mutate(0.04 + Math.random() * 0.22);
       next.push(this.spawn(child, (next.length % 5) - 2));
     }
     while (next.length < this.population) {
-      next.push(this.spawn(new FastBrain(FAST_INPUTS, 16, 3), (next.length % 5) - 2));
+      const fresh = new FastBrain(FAST_INPUTS, 16, 3);
+      if (this.champion) fresh.crashBook.merge(this.champion.crashBook);
+      next.push(this.spawn(fresh, (next.length % 5) - 2));
     }
     this.agents = next;
     this.frame = 0;
@@ -261,7 +339,6 @@ export class FastTrainer {
     return { generations: maxGens, best, ms: Date.now() - t0, success: false };
   }
 
-  /** Turbo: many generations without yielding — for in-game burst training. */
   turbo(gens: number): { generation: number; bestScore: number; success: boolean } {
     let success = false;
     for (let i = 0; i < gens; i++) {

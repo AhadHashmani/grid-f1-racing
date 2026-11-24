@@ -1,3 +1,5 @@
+import { CrashBook } from "./CrashMemory";
+
 /** Compact continuous-output network for fast neuroevolution. */
 
 export class FastBrain {
@@ -8,6 +10,8 @@ export class FastBrain {
   readonly inSize: number;
   readonly hidden: number;
   readonly outSize: number;
+  /** Lessons from crashes — inherited by clones / children. */
+  crashBook = new CrashBook();
   private hiddenActs: Float32Array;
 
   constructor(inSize = 14, hidden = 16, outSize = 3) {
@@ -47,12 +51,77 @@ export class FastBrain {
     return out;
   }
 
+  /**
+   * After a crash: store the lesson and nudge weights so the same sensor
+   * pattern produces the corrective steer / brake instead.
+   */
+  learnFromCrash(
+    input: ArrayLike<number>,
+    badSteer: number,
+    progress: number,
+    lateral: number,
+  ) {
+    const front = input[5] ?? 0.5;
+    const lesson = this.crashBook.remember(progress, lateral, front, badSteer);
+    this.nudgeToward(input, lesson.steer, lesson.brake);
+  }
+
+  /** Small Lamarckian update toward safer outputs for this sensor state. */
+  private nudgeToward(input: ArrayLike<number>, wantSteer: number, wantBrake: number) {
+    const lr = 0.08;
+    // Refresh hidden activations for this input
+    const h = this.hidden;
+    for (let j = 0; j < h; j++) {
+      let sum = this.b1[j];
+      for (let i = 0; i < this.inSize; i++) sum += (input[i] ?? 0) * this.w1[i * h + j];
+      this.hiddenActs[j] = Math.tanh(sum);
+    }
+
+    // Want raw tanh targets before post-map: steer is already [-1,1];
+    // brake/throttle mapped from tanh via (t+1)/2 so target tanh = 2y-1
+    const targetSteer = wantSteer;
+    const targetBrakeTanh = wantBrake * 2 - 1;
+    const targetThrottleTanh = -0.4;
+
+    let sumSteer = this.b2[1];
+    let sumBrake = this.b2[2];
+    let sumThr = this.b2[0];
+    for (let j = 0; j < h; j++) {
+      sumSteer += this.hiddenActs[j] * this.w2[j * 3 + 1];
+      sumBrake += this.hiddenActs[j] * this.w2[j * 3 + 2];
+      sumThr += this.hiddenActs[j] * this.w2[j * 3 + 0];
+    }
+    const errS = targetSteer - Math.tanh(sumSteer);
+    const errB = targetBrakeTanh - Math.tanh(sumBrake);
+    const errT = targetThrottleTanh - Math.tanh(sumThr);
+
+    for (let j = 0; j < h; j++) {
+      const a = this.hiddenActs[j];
+      this.w2[j * 3 + 1] += lr * errS * a;
+      this.w2[j * 3 + 2] += lr * errB * a;
+      this.w2[j * 3 + 0] += lr * errT * a;
+    }
+    this.b2[1] += lr * errS;
+    this.b2[2] += lr * errB;
+    this.b2[0] += lr * errT;
+
+    // Also nudge input→hidden for strong ray / lateral signals
+    for (let i = 0; i < this.inSize; i++) {
+      const x = input[i] ?? 0;
+      if (Math.abs(x) < 0.05) continue;
+      for (let j = 0; j < Math.min(4, h); j++) {
+        this.w1[i * h + j] += lr * 0.35 * errS * x * (j % 2 === 0 ? 1 : -1);
+      }
+    }
+  }
+
   clone(): FastBrain {
     const c = new FastBrain(this.inSize, this.hidden, this.outSize);
     c.w1.set(this.w1);
     c.b1.set(this.b1);
     c.w2.set(this.w2);
     c.b2.set(this.b2);
+    c.crashBook = this.crashBook.clone();
     return c;
   }
 
@@ -83,6 +152,9 @@ export class FastBrain {
     mix(c.b1, b.b1);
     mix(c.w2, b.w2);
     mix(c.b2, b.b2);
+    // Children inherit crash lessons from both parents
+    c.crashBook = a.crashBook.clone();
+    c.crashBook.merge(b.crashBook);
     return c;
   }
 
@@ -97,29 +169,26 @@ export class FastBrain {
     b.b2[1] = 0;
     b.b2[2] = -0.2;
 
-    // left rays (0..4) low => steer right (+), right rays low => steer left (-)
     for (let r = 0; r < 5; r++) {
       const w = 0.55 + (4 - r) * 0.08;
       b.w1[r * 16 + 0] = -w;
       b.w1[(10 - r) * 16 + 1] = -w;
     }
-    // front ray -> brake / less throttle
     b.w1[5 * 16 + 2] = -1.4;
     b.w1[5 * 16 + 3] = 1.1;
 
     b.w2[0 * 3 + 1] = 1.4;
     b.w2[1 * 3 + 1] = -1.4;
-    b.w2[2 * 3 + 2] = 1.3; // brake
-    b.w2[3 * 3 + 0] = -1.0; // cut throttle
+    b.w2[2 * 3 + 2] = 1.3;
+    b.w2[3 * 3 + 0] = -1.0;
 
-    // speed + lateral + alignment extras
     if (inSize > 11) b.w1[11 * 16 + 4] = -0.6;
     if (inSize > 12) {
-      b.w1[12 * 16 + 5] = -1.3; // lateral
+      b.w1[12 * 16 + 5] = -1.3;
       b.w2[5 * 3 + 1] = 1.5;
     }
     if (inSize > 13) {
-      b.w1[13 * 16 + 6] = 0.8; // alignment supports throttle
+      b.w1[13 * 16 + 6] = 0.8;
       b.w2[6 * 3 + 0] = 0.7;
     }
     return b;
@@ -134,6 +203,7 @@ export class FastBrain {
       b1: Array.from(this.b1),
       w2: Array.from(this.w2),
       b2: Array.from(this.b2),
+      crashBook: this.crashBook.toJSON(),
     };
   }
 
@@ -143,6 +213,7 @@ export class FastBrain {
     b.b1.set(data.b1);
     b.w2.set(data.w2);
     b.b2.set(data.b2);
+    b.crashBook = CrashBook.fromJSON(data.crashBook);
     return b;
   }
 }

@@ -1,6 +1,34 @@
 import * as THREE from "three";
 
-export function createF1CarMesh(color = 0xe10600): THREE.Group {
+/** Lightweight mesh for training swarms — fewer draws, no shadows. */
+export function createSimpleCarMesh(color = 0xe10600): THREE.Group {
+  const group = new THREE.Group();
+  const bodyMat = new THREE.MeshLambertMaterial({ color });
+  const darkMat = new THREE.MeshLambertMaterial({ color: 0x111318 });
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.32, 2.2), bodyMat);
+  body.position.y = 0.28;
+  group.add(body);
+
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.22, 0.6), darkMat);
+  cabin.position.set(0, 0.5, -0.05);
+  group.add(cabin);
+
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.06, 0.25), darkMat);
+  wing.position.set(0, 0.72, -1.2);
+  group.add(wing);
+
+  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.18, 0.9), bodyMat);
+  nose.position.set(0, 0.22, 1.2);
+  group.add(nose);
+
+  group.scale.setScalar(1.05);
+  return group;
+}
+
+export function createF1CarMesh(color = 0xe10600, detailed = true): THREE.Group {
+  if (!detailed) return createSimpleCarMesh(color);
+
   const group = new THREE.Group();
 
   const bodyMat = new THREE.MeshStandardMaterial({
@@ -39,7 +67,7 @@ export function createF1CarMesh(color = 0xe10600): THREE.Group {
   cockpit.castShadow = true;
   group.add(cockpit);
 
-  const halo = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.04, 8, 20, Math.PI), accentMat);
+  const halo = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.04, 6, 12, Math.PI), accentMat);
   halo.rotation.x = Math.PI / 2;
   halo.position.set(0, 0.72, -0.05);
   group.add(halo);
@@ -51,12 +79,10 @@ export function createF1CarMesh(color = 0xe10600): THREE.Group {
 
   const frontWing = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.08, 0.35), accentMat);
   frontWing.position.set(0, 0.12, 2.05);
-  frontWing.castShadow = true;
   group.add(frontWing);
 
   const rearWing = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 0.3), accentMat);
   rearWing.position.set(0, 0.85, -1.55);
-  rearWing.castShadow = true;
   group.add(rearWing);
 
   const endplateL = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.45, 0.28), darkMat);
@@ -68,13 +94,12 @@ export function createF1CarMesh(color = 0xe10600): THREE.Group {
 
   const sidepodL = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.28, 1.2), bodyMat);
   sidepodL.position.set(-0.55, 0.28, -0.15);
-  sidepodL.castShadow = true;
   group.add(sidepodL);
   const sidepodR = sidepodL.clone();
   sidepodR.position.x = 0.55;
   group.add(sidepodR);
 
-  const wheelGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.28, 16);
+  const wheelGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.28, 10);
   const positions: [number, number, number][] = [
     [-0.7, 0.32, 1.15],
     [0.7, 0.32, 1.15],
@@ -85,7 +110,6 @@ export function createF1CarMesh(color = 0xe10600): THREE.Group {
     const wheel = new THREE.Mesh(wheelGeo, tireMat);
     wheel.rotation.z = Math.PI / 2;
     wheel.position.set(x, y, z);
-    wheel.castShadow = true;
     group.add(wheel);
   }
 

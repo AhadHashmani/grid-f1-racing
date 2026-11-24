@@ -1,15 +1,8 @@
-import {
-  DIFFICULTIES,
-  DIFFICULTY_ORDER,
-  type DifficultyId,
-} from "../game/difficulty";
-
 export type GameMode = "menu" | "edit" | "train" | "watch" | "race";
 
 export class Hud {
   root: HTMLElement;
   private modeButtons: Record<string, HTMLButtonElement> = {};
-  private difficultyButtons: Record<string, HTMLButtonElement> = {};
   private genEl!: HTMLElement;
   private scoreEl!: HTMLElement;
   private aliveEl!: HTMLElement;
@@ -20,11 +13,8 @@ export class Hud {
   private overlay!: HTMLElement;
   private banner!: HTMLElement;
   private editCoach!: HTMLElement;
-  private diffBlurb!: HTMLElement;
-  private difficulty: DifficultyId = "pro";
   private onMode: ((mode: GameMode) => void) | null = null;
   private onAction: ((action: string) => void) | null = null;
-  private onDifficulty: ((id: DifficultyId) => void) | null = null;
 
   constructor(parent: HTMLElement) {
     this.root = document.createElement("div");
@@ -34,31 +24,14 @@ export class Hud {
     this.root.addEventListener("click", this.onRootClick, true);
   }
 
-  setHandlers(
-    onMode: (mode: GameMode) => void,
-    onAction: (action: string) => void,
-    onDifficulty: (id: DifficultyId) => void,
-  ) {
+  setHandlers(onMode: (mode: GameMode) => void, onAction: (action: string) => void) {
     this.onMode = onMode;
     this.onAction = onAction;
-    this.onDifficulty = onDifficulty;
-  }
-
-  getDifficulty(): DifficultyId {
-    return this.difficulty;
   }
 
   private onRootClick = (event: MouseEvent) => {
     const target = event.target as HTMLElement | null;
     if (!target) return;
-
-    const diffBtn = target.closest<HTMLElement>("[data-difficulty]");
-    if (diffBtn?.dataset.difficulty) {
-      event.preventDefault();
-      event.stopPropagation();
-      this.setDifficulty(diffBtn.dataset.difficulty as DifficultyId, true);
-      return;
-    }
 
     const actionBtn = target.closest<HTMLElement>("[data-action]");
     if (actionBtn?.dataset.action) {
@@ -76,26 +49,7 @@ export class Hud {
     }
   };
 
-  setDifficulty(id: DifficultyId, emit = false) {
-    this.difficulty = id;
-    this.root.querySelectorAll<HTMLButtonElement>("[data-difficulty]").forEach((btn) => {
-      btn.classList.toggle("active", btn.dataset.difficulty === id);
-    });
-    const cfg = DIFFICULTIES[id];
-    if (this.diffBlurb) {
-      this.diffBlurb.textContent = `${cfg.label}: ${cfg.blurb} · Train target ~${cfg.trainGenerationsHint} gens · ${cfg.raceLaps} race lap${cfg.raceLaps > 1 ? "s" : ""}`;
-    }
-    const note = this.root.querySelector("#overlay-diff-note");
-    if (note) note.textContent = cfg.blurb;
-    if (emit) this.onDifficulty?.(id);
-  }
-
   private renderShell() {
-    const diffButtons = DIFFICULTY_ORDER.map(
-      (id) =>
-        `<button type="button" class="diff-btn${id === "pro" ? " active" : ""}" data-difficulty="${id}">${DIFFICULTIES[id].label}</button>`,
-    ).join("");
-
     this.root.innerHTML = `
       <div class="top-bar">
         <div class="brand">
@@ -103,10 +57,6 @@ export class Hud {
           <div class="brand-sub">F1 Neuro Racing</div>
         </div>
         <div class="top-controls">
-          <div class="difficulty-bar" title="AI race difficulty">
-            <span class="diff-label">AI Level</span>
-            ${diffButtons}
-          </div>
           <div class="mode-bar" id="mode-bar">
             <button type="button" data-mode="edit">Edit Track</button>
             <button type="button" data-mode="train">Train AI</button>
@@ -116,20 +66,17 @@ export class Hud {
         </div>
       </div>
 
-      <div class="diff-blurb" id="diff-blurb"></div>
-
       <div class="edit-coach hidden" id="edit-coach">
         <div class="edit-coach-title">Track editor</div>
         <ol>
           <li><strong>Click and drag</strong> an orange ball to bend that corner</li>
           <li>The <strong style="color:#00d2be">teal</strong> ball is start / finish — drag it too</li>
           <li>The asphalt updates live as you drag</li>
-          <li>Then <strong>Train This Track</strong> — the bot relearns your curves from scratch</li>
+          <li>Then <strong>Train AI</strong> — watch the swarm learn your curves</li>
         </ol>
         <div class="edit-coach-actions">
           <button type="button" class="action-btn" data-action="reset-track">Reset Layout</button>
-          <button type="button" class="action-btn primary" data-action="quick-train">Quick Train</button>
-          <button type="button" class="action-btn" data-action="start-train">Train Live</button>
+          <button type="button" class="action-btn primary" data-action="start-train">Train This Track</button>
         </div>
       </div>
 
@@ -160,7 +107,7 @@ export class Hud {
       <div class="help" id="help">
         <h3 id="help-title">How to play</h3>
         <ul>
-          <li>Pick an <strong>AI Level</strong>, then edit, train, or race</li>
+          <li>Edit the track, train a swarm, then race the champion</li>
           <li>Orange balls reshape the circuit in Edit Track</li>
           <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to drive in Race Bot</li>
         </ul>
@@ -172,14 +119,9 @@ export class Hud {
         <div class="overlay-card">
           <h1>GR<span>ID</span></h1>
           <p>
-            Sculpt a circuit, train a neuroevolution bot, then race it in third person.
-            Choose an AI level first — Rookie is forgiving, Elite is ruthless.
+            Sculpt a circuit, watch a swarm of AI cars learn in real time —
+            each crash becomes a lesson that bot never repeats — then race the champion.
           </p>
-          <div class="difficulty-bar overlay-diff">
-            <span class="diff-label">AI Level</span>
-            ${diffButtons}
-          </div>
-          <p class="overlay-diff-note" id="overlay-diff-note"></p>
           <div class="overlay-actions">
             <button type="button" class="action-btn primary" data-action="start-edit">Build Track</button>
             <button type="button" class="action-btn" data-action="start-train">Train AI</button>
@@ -199,21 +141,10 @@ export class Hud {
     this.overlay = this.root.querySelector("#overlay")!;
     this.banner = this.root.querySelector("#banner")!;
     this.editCoach = this.root.querySelector("#edit-coach")!;
-    this.diffBlurb = this.root.querySelector("#diff-blurb")!;
 
     this.root.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((btn) => {
       this.modeButtons[btn.dataset.mode!] = btn;
     });
-
-    this.root.querySelectorAll<HTMLButtonElement>("[data-difficulty]").forEach((btn) => {
-      const id = btn.dataset.difficulty!;
-      // Both menu + overlay bars share the same ids — keep last or merge class toggles via query
-      this.difficultyButtons[id] = btn;
-    });
-
-    this.setDifficulty("pro");
-    const note = this.root.querySelector("#overlay-diff-note");
-    if (note) note.textContent = DIFFICULTIES.pro.blurb;
   }
 
   setMode(mode: GameMode) {
@@ -232,56 +163,47 @@ export class Hud {
         <li><strong>Drag orange balls</strong> — each one pulls a corner</li>
         <li><strong style="color:#00d2be">Teal</strong> = start/finish line</li>
         <li>Camera stays fixed so dragging is easy</li>
-        <li>After edits, <strong>Train AI</strong> learns this layout from scratch</li>
+        <li>Then hit <strong>Train AI</strong> to watch the swarm learn</li>
       `;
     } else if (mode === "train") {
-      this.helpTitle.textContent = "Training";
+      this.helpTitle.textContent = "Live training";
       help.innerHTML = `
-        <li>Turbo trainer runs ~2 generations every frame</li>
-        <li>Seeded drivers usually lap in <strong>1–2 gens</strong> even on curvy edits</li>
-        <li><strong>Quick Train</strong> learns a lap in under a second</li>
-        <li><kbd>Space</kbd> watches the champ</li>
+        <li>Every car drives at once — crashes fade out as ghosts</li>
+        <li>When a bot crashes, it <strong>learns that mistake</strong> and will not repeat it</li>
+        <li>The pulsing lead car is closest to finishing a clean lap</li>
+        <li><kbd>Space</kbd> jumps to the champion when ready</li>
       `;
       if (!this.root.querySelector(".train-actions")) {
         const actions = document.createElement("div");
         actions.className = "train-actions";
         actions.innerHTML = `
-          <button type="button" class="action-btn primary" data-action="quick-train">Quick Train</button>
           <button type="button" class="action-btn" data-action="retrain-fresh">Retrain Fresh</button>
+          <button type="button" class="action-btn primary" data-action="watch-champ">Watch Champ</button>
         `;
         this.helpEl.appendChild(actions);
       }
     } else if (mode === "race") {
-      const cfg = DIFFICULTIES[this.difficulty];
       this.helpTitle.textContent = "Race controls";
       help.innerHTML = `
         <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows — third person</li>
-        <li>Red = you · Teal = ML bot (${cfg.label})</li>
-        <li>First to ${cfg.raceLaps} lap${cfg.raceLaps > 1 ? "s" : ""} wins · stay on asphalt</li>
+        <li>Red = you · Teal = ML bot</li>
+        <li>First to 2 laps wins · stay on asphalt</li>
       `;
     } else if (mode === "watch") {
       this.helpTitle.textContent = "Spectating";
       help.innerHTML = `
         <li>Watching the saved champion brain</li>
-        <li>It resets after each completed lap</li>
-        <li>Raise <strong>AI Level</strong> then retrain for a tougher rival</li>
+        <li>It carries crash lessons from training</li>
+        <li>Resets after each completed lap</li>
       `;
     } else {
       this.helpTitle.textContent = "How to play";
       help.innerHTML = `
-        <li>Pick an <strong>AI Level</strong>, then edit, train, or race</li>
+        <li>Edit the track, train a swarm, then race the champion</li>
         <li>Orange balls reshape the circuit in Edit Track</li>
         <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to drive in Race Bot</li>
       `;
     }
-
-    // Keep all difficulty button pairs in sync
-    this.root.querySelectorAll<HTMLButtonElement>("[data-difficulty]").forEach((btn) => {
-      btn.classList.toggle("active", btn.dataset.difficulty === this.difficulty);
-    });
-
-    const note = this.root.querySelector("#overlay-diff-note");
-    if (note) note.textContent = DIFFICULTIES[this.difficulty].blurb;
   }
 
   updateStats(opts: {
@@ -298,7 +220,7 @@ export class Hud {
     this.aliveEl.textContent =
       opts.mode === "race" || opts.mode === "watch"
         ? `L${opts.lap}`
-        : `${opts.alive}`;
+        : `${opts.alive}${opts.lap > 0 ? ` · L${opts.lap}` : ""}`;
     this.timeEl.textContent = formatTime(opts.timeSec);
     this.speedEl.textContent = String(Math.round(Math.abs(opts.speed) * 8.2));
   }

@@ -1,10 +1,9 @@
-import type { DifficultyConfig } from "../game/difficulty";
 import { FastBrain } from "../sim/FastBrain";
 import { FastTrack } from "../sim/FastTrack";
 import { FastTrainer } from "../sim/FastTrainer";
 import type { ControlPoint } from "../track/Track";
 
-const SAVE_KEY = "grid-f1-champion-v2";
+const SAVE_KEY = "grid-f1-champion-v3";
 
 export type ChampionSave = {
   brain: ReturnType<FastBrain["toJSON"]>;
@@ -21,13 +20,9 @@ export class Trainer {
   trackHash = "";
   champion: FastBrain | null = null;
   fast: FastTrainer | null = null;
-  private population = 36;
-  private maxFrames = 1200;
-
-  applyDifficulty(cfg: DifficultyConfig) {
-    this.population = Math.max(32, cfg.population + 8);
-    this.maxFrames = Math.min(1400, Math.max(900, cfg.maxFrames / 2));
-  }
+  private population = 24;
+  private maxFrames = 2400;
+  private lapAnnounced = false;
 
   setTrackHash(hash: string) {
     this.trackHash = hash;
@@ -47,6 +42,7 @@ export class Trainer {
     this.bestLapTime = null;
     this.champion = null;
     this.training = true;
+    this.lapAnnounced = false;
     this.ensureFast(points, width);
     this.fast!.startFresh();
     this.syncStats();
@@ -57,6 +53,7 @@ export class Trainer {
     const saved = this.peekSave();
     const sameTrack = saved?.trackHash != null && saved.trackHash === hash;
     this.ensureFast(points, width);
+    this.lapAnnounced = false;
 
     if (forceFresh || !sameTrack || !saved) {
       this.startFresh(points, width);
@@ -87,23 +84,69 @@ export class Trainer {
     }
   }
 
-  /** Run several full generations quickly (call from the train loop). */
-  turboStep(gens = 2): { success: boolean; generation: number; bestScore: number } {
-    if (!this.fast) return { success: false, generation: this.generation, bestScore: this.bestScore };
-    let success = false;
-    for (let i = 0; i < gens; i++) {
-      const r = this.fast.runGeneration();
-      if (r.laps >= 1) success = true;
+  /**
+   * Visible live training — step every car a few physics ticks.
+   * Returns whether a bot just completed a lap this generation.
+   */
+  liveStep(steps = 4): {
+    success: boolean;
+    generation: number;
+    bestScore: number;
+    alive: number;
+    generationDone: boolean;
+    leaderIndex: number;
+    justLapped: boolean;
+  } {
+    if (!this.fast) {
+      return {
+        success: false,
+        generation: this.generation,
+        bestScore: this.bestScore,
+        alive: 0,
+        generationDone: false,
+        leaderIndex: 0,
+        justLapped: false,
+      };
     }
+
+    let lapComplete = false;
+    let generationDone = false;
+    let alive = 0;
+    let leaderIndex = 0;
+
+    for (let i = 0; i < steps; i++) {
+      const r = this.fast.liveStep(1 / 48);
+      alive = r.alive;
+      leaderIndex = r.leaderIndex;
+      if (r.lapComplete) lapComplete = true;
+      if (r.generationDone) {
+        generationDone = true;
+        break;
+      }
+    }
+
+    const justLapped = lapComplete && !this.lapAnnounced;
+    if (lapComplete) this.lapAnnounced = true;
+    if (generationDone) this.lapAnnounced = false;
+
     this.syncStats();
-    if (this.champion) this.persist();
-    return { success, generation: this.generation, bestScore: this.bestScore };
+    if (lapComplete && this.champion) this.persist();
+
+    return {
+      success: lapComplete,
+      generation: this.generation,
+      bestScore: this.bestScore,
+      alive,
+      generationDone,
+      leaderIndex,
+      justLapped,
+    };
   }
 
-  /** Block until a lap is learned (usually under a second). */
+  /** Headless solve for race/watch fallback when no champion exists yet. */
   quickTrain(): { success: boolean; generations: number; ms: number } {
     if (!this.fast) return { success: false, generations: 0, ms: 0 };
-    const r = this.fast.trainUntilLap(30);
+    const r = this.fast.trainUntilLap(35);
     this.syncStats();
     if (r.success) this.persist();
     return r;

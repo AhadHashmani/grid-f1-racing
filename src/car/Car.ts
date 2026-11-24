@@ -11,6 +11,8 @@ export type CarControls = {
   right: boolean;
 };
 
+type OpacityMaterial = THREE.MeshStandardMaterial | THREE.MeshLambertMaterial;
+
 export class Car {
   mesh: THREE.Group;
   position = new THREE.Vector3();
@@ -31,19 +33,20 @@ export class Car {
   color: number;
   translucent = false;
   private offTrackFrames = 0;
-  private baseOpacityMaterials: THREE.MeshStandardMaterial[] = [];
+  private baseOpacityMaterials: OpacityMaterial[] = [];
 
   constructor(
     color = 0xe10600,
     maxSpeed = 22,
     rotSpeed = 3.1,
     acceleration = 16,
+    detailed = true,
   ) {
     this.color = color;
     this.maxSpeed = maxSpeed;
     this.rotSpeed = rotSpeed;
     this.acceleration = acceleration;
-    this.mesh = createF1CarMesh(color);
+    this.mesh = createF1CarMesh(color, detailed);
     this.sensor = new Sensor(this);
     this.brain = new NeuralNetwork([this.sensor.rayCount, 28, 4]);
     this.cacheMaterials();
@@ -55,8 +58,9 @@ export class Car {
       if (mesh.isMesh && mesh.material) {
         const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
         for (const mat of mats) {
-          if ((mat as THREE.MeshStandardMaterial).isMeshStandardMaterial) {
-            this.baseOpacityMaterials.push(mat as THREE.MeshStandardMaterial);
+          const m = mat as OpacityMaterial;
+          if ((m as THREE.MeshStandardMaterial).isMeshStandardMaterial || (m as THREE.MeshLambertMaterial).isMeshLambertMaterial) {
+            this.baseOpacityMaterials.push(m);
           }
         }
       }

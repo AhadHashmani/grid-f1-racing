@@ -27,5 +27,7 @@ export function driveWithFastBrain(car: Car, brain: FastBrain, track: Track, dt:
   input[RAYS + 2] = Math.sin(car.yaw) * sample.tangent.x + Math.cos(car.yaw) * sample.tangent.z;
 
   brain.think(input, out);
+  // Apply crash lessons so the champion never repeats known mistakes
+  brain.crashBook.apply(proj.progress, proj.lateral, input[5], out);
   car.applyAnalog(out[0], out[1], out[2], dt);
 }

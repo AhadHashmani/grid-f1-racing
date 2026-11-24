@@ -9,7 +9,6 @@ import { Track } from "../track/Track";
 import { TrackEditor } from "../track/TrackEditor";
 import { DEFAULT_CONTROL_POINTS } from "../track/defaultTrack";
 import { Hud, type GameMode } from "../ui/Hud";
-import { DIFFICULTIES, type DifficultyId } from "./difficulty";
 
 export class Game {
   private renderer: THREE.WebGLRenderer;
@@ -37,17 +36,20 @@ export class Game {
   private overviewCenter = new THREE.Vector3(0, 0, 0);
   private anim = 0;
   private container: HTMLElement;
-  private difficulty: DifficultyId = "pro";
   private trackDirty = false;
+  private leaderPulse = 0;
   private colors = [0xe10600, 0x00d2be, 0xff8700, 0x3b82f6, 0xa855f7, 0xf43f5e, 0x22c55e, 0xeab308];
 
   constructor(container: HTMLElement) {
     this.container = container;
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: false,
+      powerPreference: "high-performance",
+      alpha: false,
+    });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
     this.renderer.setSize(container.clientWidth, container.clientHeight);
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.enabled = false;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.domElement.style.zIndex = "0";
     this.renderer.domElement.style.position = "absolute";
@@ -74,9 +76,7 @@ export class Game {
     this.hud.setHandlers(
       (mode) => this.setMode(mode),
       (action) => this.handleAction(action),
-      (id) => this.setDifficulty(id),
     );
-    this.setDifficulty("pro");
 
     window.addEventListener("resize", () => this.onResize());
     window.addEventListener("keydown", (e) => {
@@ -95,52 +95,29 @@ export class Game {
 
   private buildWorld() {
     this.scene.background = new THREE.Color(0x0b1020);
-    this.scene.fog = new THREE.Fog(0x0b1020, 80, 260);
+    this.scene.fog = new THREE.Fog(0x0b1020, 100, 220);
 
-    const hemi = new THREE.HemisphereLight(0x9eb7ff, 0x1a1510, 0.85);
+    const hemi = new THREE.HemisphereLight(0x9eb7ff, 0x1a1510, 1.05);
     this.scene.add(hemi);
 
-    const sun = new THREE.DirectionalLight(0xfff2dd, 1.35);
+    const sun = new THREE.DirectionalLight(0xfff2dd, 0.95);
     sun.position.set(40, 70, 20);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.near = 10;
-    sun.shadow.camera.far = 200;
-    sun.shadow.camera.left = -90;
-    sun.shadow.camera.right = 90;
-    sun.shadow.camera.top = 90;
-    sun.shadow.camera.bottom = -90;
     this.scene.add(sun);
 
     const ground = new THREE.Mesh(
-      new THREE.CircleGeometry(180, 64),
-      new THREE.MeshStandardMaterial({ color: 0x152012, roughness: 0.95, metalness: 0.0 }),
+      new THREE.CircleGeometry(160, 32),
+      new THREE.MeshLambertMaterial({ color: 0x152012 }),
     );
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.02;
-    ground.receiveShadow = true;
     this.scene.add(ground);
 
-    const towerMat = new THREE.MeshStandardMaterial({ color: 0x2a3140, metalness: 0.4, roughness: 0.5 });
-    for (let i = 0; i < 8; i++) {
-      const ang = (i / 8) * Math.PI * 2;
+    const towerMat = new THREE.MeshLambertMaterial({ color: 0x2a3140 });
+    for (let i = 0; i < 4; i++) {
+      const ang = (i / 4) * Math.PI * 2;
       const tower = new THREE.Mesh(new THREE.BoxGeometry(2.2, 18, 2.2), towerMat);
       tower.position.set(Math.cos(ang) * 95, 9, Math.sin(ang) * 95);
-      tower.castShadow = true;
       this.scene.add(tower);
-      const lamp = new THREE.PointLight(0xffd9a8, 1.2, 55);
-      lamp.position.set(Math.cos(ang) * 88, 16, Math.sin(ang) * 88);
-      this.scene.add(lamp);
-    }
-
-    const hillMat = new THREE.MeshStandardMaterial({ color: 0x101820, roughness: 1, metalness: 0 });
-    for (let i = 0; i < 12; i++) {
-      const hill = new THREE.Mesh(new THREE.SphereGeometry(18 + Math.random() * 20, 16, 12), hillMat);
-      const ang = Math.random() * Math.PI * 2;
-      const r = 130 + Math.random() * 40;
-      hill.position.set(Math.cos(ang) * r, -8, Math.sin(ang) * r);
-      hill.scale.y = 0.35;
-      this.scene.add(hill);
     }
   }
 
@@ -155,14 +132,6 @@ export class Game {
     cz /= this.track.controlPoints.length;
     this.overviewCenter.set(cx, 0, cz);
     this.chase.setOrbitOverview(this.overviewCenter, 100, 82);
-  }
-
-  private setDifficulty(id: DifficultyId) {
-    this.difficulty = id;
-    const cfg = DIFFICULTIES[id];
-    this.trainer.applyDifficulty(cfg);
-    this.raceLaps = cfg.raceLaps;
-    this.hud.setDifficulty(id);
   }
 
   private handleAction(action: string) {
@@ -195,18 +164,8 @@ export class Game {
         break;
       case "retrain-fresh":
         this.beginTraining(true);
-        this.hud.showBanner("FRESH TRAINING");
+        this.hud.showBanner("FRESH TRAINING — WATCH THE SWARM");
         break;
-      case "quick-train": {
-        this.beginTraining(this.trackDirty);
-        const r = this.trainer.quickTrain();
-        this.syncVisualFromFast();
-        this.hud.showBanner(
-          r.success ? `LEARNED IN ${r.generations} GEN · ${(r.ms / 1000).toFixed(1)}s` : "KEEP TRAINING",
-        );
-        if (r.success) this.setMode("watch");
-        break;
-      }
     }
   }
 
@@ -260,10 +219,7 @@ export class Game {
 
     if (mode === "train") {
       this.beginTraining(this.trackDirty);
-      // Instant first burst so the user sees a competent swarm quickly
-      const burst = this.trainer.turboStep(2);
-      this.syncVisualFromFast();
-      this.hud.showBanner(burst.success ? "LAP LEARNED" : "TURBO TRAINING");
+      this.hud.showBanner("SWARM LEARNING");
       return;
     }
 
@@ -286,7 +242,6 @@ export class Game {
   }
 
   private startRace() {
-    const cfg = DIFFICULTIES[this.difficulty];
     this.trainer.setTrackHash(this.track.hashLayout());
     let brain = this.trainer.champion ?? this.trainer.loadChampionBrain();
     const trained = brain != null;
@@ -296,20 +251,16 @@ export class Game {
       brain = this.trainer.champion;
     }
 
-    const baseMax = 24;
-    const baseRot = 2.9;
-    const baseAccel = 16;
-
-    this.player = new Car(0xe10600, baseMax * cfg.playerSpeedMult, baseRot, baseAccel);
-    this.rival = new Car(0x00d2be, baseMax * cfg.botSpeedMult, baseRot * cfg.botSteerMult, baseAccel);
+    this.player = new Car(0xe10600, 24, 2.9, 16);
+    this.rival = new Car(0x00d2be, 24, 2.9, 16);
     this.rivalBrain = brain ? brain.clone() : null;
     this.player.reset(this.track, -1);
     this.rival.reset(this.track, 1);
-    this.raceLaps = cfg.raceLaps;
+    this.raceLaps = 2;
     this.carGroup.add(this.player.mesh, this.rival.mesh);
     this.chase.reset();
     this.chase.update(this.player, 1);
-    this.hud.showBanner(trained ? `LIGHTS OUT · ${cfg.label}` : `AUTO-TRAINED · ${cfg.label}`);
+    this.hud.showBanner(trained ? "LIGHTS OUT" : "AUTO-TRAINED RIVAL");
   }
 
   private clearCars() {
@@ -321,9 +272,9 @@ export class Game {
 
   private buildVisualSwarm() {
     this.clearCars();
-    const n = Math.min(18, this.trainer.fast?.agents.length ?? 12);
+    const n = this.trainer.fast?.agents.length ?? 24;
     for (let i = 0; i < n; i++) {
-      const car = new Car(this.colors[i % this.colors.length]);
+      const car = new Car(this.colors[i % this.colors.length], 22, 3.1, 16, false);
       car.reset(this.track, (i % 5) - 2);
       this.visualCars.push(car);
       this.carGroup.add(car.mesh);
@@ -334,6 +285,15 @@ export class Game {
   private syncVisualFromFast() {
     const agents = this.trainer.fast?.agents;
     if (!agents) return;
+    const leader = this.trainer.fast?.leaderIndex ?? 0;
+    this.leaderPulse = (this.leaderPulse + 0.08) % (Math.PI * 2);
+
+    // Rebuild visuals if population size changed after a generation
+    if (this.visualCars.length !== agents.length) {
+      this.buildVisualSwarm();
+      return;
+    }
+
     for (let i = 0; i < this.visualCars.length; i++) {
       const a = agents[i];
       const car = this.visualCars[i];
@@ -343,6 +303,8 @@ export class Game {
       car.speed = a.speed;
       car.alive = a.alive;
       car.setGhost(!a.alive);
+      const isLeader = i === leader && a.alive;
+      car.mesh.scale.setScalar(isLeader ? 1.35 + Math.sin(this.leaderPulse) * 0.06 : 1.05);
       car.syncMesh();
     }
   }
@@ -398,14 +360,14 @@ export class Game {
   }
 
   private updateTraining() {
-    // 2 full generations per frame ≈ learns a lap in about a second of wall time
-    const result = this.trainer.turboStep(2);
+    // Visible swarm: every car drives in real-time (sped up a bit)
+    const result = this.trainer.liveStep(5);
     this.syncVisualFromFast();
-    if (result.success && this.sessionTime > 0.4) {
-      // Keep refining a bit, but banner once
-      if (Math.floor(this.sessionTime * 2) % 7 === 0) {
-        this.hud.showBanner(`LAP OK · GEN ${result.generation}`, 900);
-      }
+
+    if (result.justLapped) {
+      this.hud.showBanner(`LAP COMPLETE · GEN ${result.generation}`, 1600);
+    } else if (result.generationDone) {
+      this.hud.showBanner(`GEN ${result.generation} · CRASH LESSONS KEPT`, 900);
     }
   }
 
@@ -471,7 +433,7 @@ export class Game {
 
     if (this.mode === "train") {
       alive = this.trainer.getAliveCount();
-      const lead = this.trainer.fast?.agents[0];
+      const lead = this.trainer.fast?.agents[this.trainer.fast.leaderIndex];
       lap = lead?.laps ?? 0;
       speed = lead?.speed ?? 0;
     } else if (this.mode === "watch" && this.watchCar) {
