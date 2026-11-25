@@ -260,6 +260,7 @@ export class FastTrainer {
     a.yaw += steer * DRIVE.rotSpeed * steerFactor * dt;
     a.framesAlive += 1;
 
+    const prev = a.progress;
     // Sub-step translation so high-speed cars can't tunnel past the wall face
     const moveDist = Math.abs(a.speed) * dt;
     const subSteps = Math.max(1, Math.min(6, Math.ceil(moveDist / 0.55)));
@@ -270,6 +271,7 @@ export class FastTrainer {
       const hit = this.track.resolveWall(a.x, a.z, a.progress);
       a.x = hit.x;
       a.z = hit.z;
+      a.progress = hit.progress;
       if (hit.hit) {
         a.speed = 0;
         a.alive = false;
@@ -278,11 +280,8 @@ export class FastTrainer {
         this.score(a, hit.progress);
         return;
       }
-      a.progress = hit.progress;
     }
     const proj = this.track.project(a.x, a.z, a.progress);
-
-    const prev = a.progress;
     const wrapped = prev > 0.82 && proj.progress < 0.18;
     const forward = proj.progress >= prev - 0.004 || wrapped;
 
