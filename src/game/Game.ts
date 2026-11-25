@@ -174,14 +174,17 @@ export class Game {
         this.setEditCamera();
         this.hud.showBanner("TRACK RESET");
         break;
-      case "random-track":
-        this.editor.resetToDefault(generateRandomTrack());
+      case "random-track": {
+        const pts = generateRandomTrack();
+        this.editor.resetToDefault(pts);
         this.checkpoints = this.track.getCheckpointProgresses();
         this.trackDirty = true;
+        this.refreshDriveTrack();
         this.fitOverview();
         this.setEditCamera();
-        this.hud.showBanner("RANDOM LAYOUT");
+        this.hud.showBanner(`RANDOM · ${pts.length} NODES`);
         break;
+      }
       case "retrain-fresh":
         this.beginTraining(true);
         this.hud.showBanner("FRESH TRAINING — WATCH THE SWARM");
@@ -434,7 +437,20 @@ export class Game {
     if (!this.player || !this.rival || this.finished) return;
 
     const controls = this.input.getRacingControls();
-    this.player.applyControls(controls, dt);
+    // Sub-step player motion so race mode can't tunnel through barriers
+    const moveGuess = Math.abs(this.player.speed) * dt + 2;
+    const subs = Math.max(1, Math.min(6, Math.ceil(moveGuess / 0.55)));
+    const sdt = dt / subs;
+    for (let s = 0; s < subs; s++) {
+      this.player.applyControls(controls, sdt);
+      if (this.track.resolveWall(this.player.position)) {
+        this.player.speed = 0;
+        this.player.syncMesh();
+        this.player.alive = false;
+        this.player.setGhost(true);
+        break;
+      }
+    }
     this.player.updateRaceProgress(this.track, this.checkpoints, Math.floor(this.sessionTime * 60), false);
 
     if (this.rival.alive && this.rivalBrain) {
