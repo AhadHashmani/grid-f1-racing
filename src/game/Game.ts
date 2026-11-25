@@ -150,6 +150,8 @@ export class Game {
         this.setMode("edit");
         break;
       case "start-train":
+        // Always treat "Train This Track" as a fresh solve on the current layout
+        this.trackDirty = true;
         this.setMode("train");
         break;
       case "start-race":

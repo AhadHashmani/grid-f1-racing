@@ -20,23 +20,35 @@ export const TRACK_WIDTH = 14;
 /** Denser samples = smoother continuous walls on generated layouts. */
 export const TRACK_SAMPLES = 220;
 
-/** Procedural closed circuit — irregular ring with pinch points and hairpins. */
+/**
+ * Procedural closed circuit that is obviously not the default oval:
+ * hairpin inlets, wide bulges, and a couple of hard kinks.
+ */
 export function generateRandomTrack(seed = Date.now()): ControlPoint[] {
   let s = seed >>> 0;
   const rnd = () => {
     s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
     return s / 0xffffffff;
   };
-  const n = 10 + Math.floor(rnd() * 6);
+  const n = 12 + Math.floor(rnd() * 4);
   const pts: ControlPoint[] = [];
+  let a = rnd() * Math.PI * 2;
   for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2 + (rnd() - 0.5) * 0.7;
-    // Alternate fat / pinched radii so the silhouette isn't a bland oval
-    const pinch = i % 3 === 0 ? 0.55 + rnd() * 0.25 : 0.85 + rnd() * 0.55;
-    const r = (22 + rnd() * 28) * pinch;
+    // Uneven step — sometimes almost skip, sometimes double-back a bit
+    const step = (Math.PI * 2) / n;
+    a += step * (0.55 + rnd() * 0.9);
+    if (i % 5 === 2) a += (rnd() - 0.5) * 0.85; // kink
+
+    let pinch: number;
+    if (i % 5 === 0) pinch = 0.32 + rnd() * 0.18; // deep hairpin
+    else if (i % 5 === 1) pinch = 0.48 + rnd() * 0.18;
+    else if (i % 5 === 3) pinch = 1.15 + rnd() * 0.55; // fat bulge
+    else pinch = 0.75 + rnd() * 0.45;
+
+    const r = (18 + rnd() * 34) * pinch;
     pts.push({
-      x: Math.cos(a) * r + (rnd() - 0.5) * 18,
-      z: Math.sin(a) * r + (rnd() - 0.5) * 18,
+      x: Math.cos(a) * r + (rnd() - 0.5) * 26,
+      z: Math.sin(a) * r + (rnd() - 0.5) * 26,
     });
   }
   return pts;
