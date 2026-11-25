@@ -28,7 +28,9 @@ export class Hud {
     this.root.id = "ui";
     parent.appendChild(this.root);
     this.renderShell();
+    // Capture both click and pointerup — some environments drop click after WebGL focus
     this.root.addEventListener("click", this.onRootPointer, true);
+    this.root.addEventListener("pointerup", this.onRootPointer, true);
   }
 
   setHandlers(
@@ -327,10 +329,14 @@ export class Hud {
     }
   }
 
-  showBanner(text: string, ms = 1800) {
+  showBanner(text: string, ms = 2600) {
     this.banner.textContent = text;
     this.banner.classList.add("show");
-    window.setTimeout(() => this.banner.classList.remove("show"), ms);
+    window.clearTimeout((this.banner as HTMLElement & { __hide?: number }).__hide);
+    (this.banner as HTMLElement & { __hide?: number }).__hide = window.setTimeout(
+      () => this.banner.classList.remove("show"),
+      ms,
+    );
   }
 
   showResult(title: string, detail: string, actions: { label: string; action: string; primary?: boolean }[]) {
