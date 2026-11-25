@@ -20,21 +20,23 @@ export const TRACK_WIDTH = 14;
 /** Lower sample count + instanced props keeps first paint snappy. */
 export const TRACK_SAMPLES = 160;
 
-/** Procedural closed circuit — wavy ring with hairpins for stress-testing AI. */
+/** Procedural closed circuit — irregular ring with pinch points and hairpins. */
 export function generateRandomTrack(seed = Date.now()): ControlPoint[] {
   let s = seed >>> 0;
   const rnd = () => {
     s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
     return s / 0xffffffff;
   };
-  const n = 9 + Math.floor(rnd() * 5);
+  const n = 10 + Math.floor(rnd() * 6);
   const pts: ControlPoint[] = [];
   for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2 + (rnd() - 0.5) * 0.55;
-    const r = 26 + rnd() * 34;
+    const a = (i / n) * Math.PI * 2 + (rnd() - 0.5) * 0.7;
+    // Alternate fat / pinched radii so the silhouette isn't a bland oval
+    const pinch = i % 3 === 0 ? 0.55 + rnd() * 0.25 : 0.85 + rnd() * 0.55;
+    const r = (22 + rnd() * 28) * pinch;
     pts.push({
-      x: Math.cos(a) * r + (rnd() - 0.5) * 14,
-      z: Math.sin(a) * r + (rnd() - 0.5) * 14,
+      x: Math.cos(a) * r + (rnd() - 0.5) * 18,
+      z: Math.sin(a) * r + (rnd() - 0.5) * 18,
     });
   }
   return pts;
