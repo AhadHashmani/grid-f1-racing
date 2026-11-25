@@ -115,7 +115,11 @@ export class FastTrack {
     return out.length ? out : this.samples.map((_, i) => i);
   }
 
-  project(x: number, z: number): {
+  project(
+    x: number,
+    z: number,
+    preferProgress?: number,
+  ): {
     progress: number;
     index: number;
     lateral: number;
@@ -124,23 +128,32 @@ export class FastTrack {
     tz: number;
   } {
     let best = 0;
-    let bestDist = Infinity;
+    let bestScore = Infinity;
     const idxs = this.candidateIndices(x, z);
+    const total = Math.max(this.totalLength, 1);
     for (const i of idxs) {
       const s = this.samples[i];
-      const d = (s.x - x) * (s.x - x) + (s.z - z) * (s.z - z);
-      if (d < bestDist) {
-        bestDist = d;
+      let d = (s.x - x) * (s.x - x) + (s.z - z) * (s.z - z);
+      // On folded / edited maps, prefer the sample that continues along the lap
+      if (preferProgress != null) {
+        const p = s.distance / total;
+        let dp = Math.abs(p - preferProgress);
+        if (dp > 0.5) dp = 1 - dp;
+        // Soft bias (~3m equiv) so we don't snap to a parallel ribbon behind us
+        d += dp * dp * 140;
+      }
+      if (d < bestScore) {
+        bestScore = d;
         best = i;
       }
     }
     const s = this.samples[best];
     const lateral = (x - s.x) * s.nx + (z - s.z) * s.nz;
     return {
-      progress: s.distance / Math.max(this.totalLength, 1),
+      progress: s.distance / total,
       index: best,
       lateral,
-      onTrack: Math.abs(lateral) <= this.width * 0.5 + 0.4,
+      onTrack: Math.abs(lateral) <= this.width * 0.5 + 0.55,
       tx: s.tx,
       tz: s.tz,
     };
@@ -159,6 +172,21 @@ export class FastTrack {
       }
     }
     return 1;
+  }
+
+  sampleAtProgress(progress: number) {
+    const target = ((progress % 1) + 1) % 1;
+    const dist = target * this.totalLength;
+    let best = 0;
+    let bestD = Infinity;
+    for (let i = 0; i < this.samples.length; i++) {
+      const d = Math.abs(this.samples[i].distance - dist);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return this.samples[best];
   }
 
   /** Lane = lateral offset; along = sample index offset so the swarm fans out. */

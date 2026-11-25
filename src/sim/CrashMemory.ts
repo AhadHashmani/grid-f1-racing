@@ -13,7 +13,7 @@ export type CrashLesson = {
   brake: number;
 };
 
-const MAX_LESSONS = 24;
+const MAX_LESSONS = 18;
 
 export class CrashBook {
   lessons: CrashLesson[] = [];
@@ -29,7 +29,6 @@ export class CrashBook {
   }
 
   add(lesson: CrashLesson) {
-    // Replace a near-duplicate so the bot truly "never" repeats that exact mistake
     const idx = this.lessons.findIndex(
       (l) =>
         l.progressBin === lesson.progressBin &&
@@ -41,7 +40,7 @@ export class CrashBook {
     if (this.lessons.length > MAX_LESSONS) this.lessons.shift();
   }
 
-  /** Record a crash and the corrective action that would have avoided it. */
+  /** Record a crash and a gentle corrective action. */
   remember(
     progress: number,
     lateral: number,
@@ -53,18 +52,17 @@ export class CrashBook {
       progressBin: Math.max(0, Math.min(31, Math.floor(progress * 32))),
       side,
       front: frontRay,
-      // Steer away from the wall we hit; reverse the bad steer if it matched
-      steer: -side * 0.95 - Math.sign(badSteer) * 0.15,
-      brake: frontRay < 0.45 ? 0.95 : 0.7,
+      // Mild steer away from the wall — hard ±1 corrections caused doughnuts
+      steer: Math.max(-0.55, Math.min(0.55, -side * 0.5 - Math.sign(badSteer) * 0.1)),
+      brake: frontRay < 0.45 ? 0.85 : 0.55,
     };
-    lesson.steer = Math.max(-1, Math.min(1, lesson.steer));
     this.add(lesson);
     return lesson;
   }
 
   /**
-   * Bias network outputs when the car is approaching a known crash situation.
-   * Returns true if a lesson was applied.
+   * Bias outputs only when drifting toward a remembered wall.
+   * Prefers braking over slamming full opposite steer (which caused mini-circles).
    */
   apply(
     progress: number,
@@ -81,15 +79,16 @@ export class CrashBook {
         Math.abs(lesson.progressBin - bin),
         32 - Math.abs(lesson.progressBin - bin),
       );
-      if (binDist > 2) continue;
-      if (lesson.side !== side && Math.abs(lateral) < 0.35) continue;
-      // Same corner / same wall approach
-      if (Math.abs(lesson.front - frontRay) > 0.35 && frontRay > 0.55) continue;
+      if (binDist > 1) continue;
+      if (lesson.side !== side) continue;
+      // Only when actually leaning into that wall
+      if (Math.abs(lateral) < 1.2) continue;
+      if (frontRay > 0.7 && Math.abs(lateral) < 2.5) continue;
 
-      const strength = 0.75 + (1 - binDist / 3) * 0.2;
+      const strength = 0.28 + (1 - binDist / 2) * 0.15;
       out[1] = out[1] * (1 - strength) + lesson.steer * strength;
-      out[2] = Math.max(out[2], lesson.brake * strength);
-      out[0] *= 1 - 0.55 * strength;
+      out[2] = Math.max(out[2], lesson.brake * (0.45 + strength));
+      out[0] *= 1 - 0.35 * strength;
       hit = true;
     }
     return hit;

@@ -63,13 +63,21 @@ export class FastBrain {
   ) {
     const front = input[5] ?? 0.5;
     const lesson = this.crashBook.remember(progress, lateral, front, badSteer);
-    this.nudgeToward(input, lesson.steer, lesson.brake);
+    this.imitate(input, 0.25, lesson.steer, lesson.brake, 0.04);
   }
 
-  /** Small Lamarckian update toward safer outputs for this sensor state. */
-  private nudgeToward(input: ArrayLike<number>, wantSteer: number, wantBrake: number) {
-    const lr = 0.08;
-    // Refresh hidden activations for this input
+  /**
+   * Supervised nudge toward target continuous controls.
+   * throttle/brake in [0,1], steer in [-1,1].
+   * One-step backprop through tanh so distillation actually sticks.
+   */
+  imitate(
+    input: ArrayLike<number>,
+    wantThrottle: number,
+    wantSteer: number,
+    wantBrake: number,
+    lr = 0.06,
+  ) {
     const h = this.hidden;
     for (let j = 0; j < h; j++) {
       let sum = this.b1[j];
@@ -77,40 +85,32 @@ export class FastBrain {
       this.hiddenActs[j] = Math.tanh(sum);
     }
 
-    // Want raw tanh targets before post-map: steer is already [-1,1];
-    // brake/throttle mapped from tanh via (t+1)/2 so target tanh = 2y-1
-    const targetSteer = wantSteer;
-    const targetBrakeTanh = wantBrake * 2 - 1;
-    const targetThrottleTanh = -0.4;
+    const targets = [wantThrottle * 2 - 1, wantSteer, wantBrake * 2 - 1];
+    const dH = new Float32Array(h);
 
-    let sumSteer = this.b2[1];
-    let sumBrake = this.b2[2];
-    let sumThr = this.b2[0];
-    for (let j = 0; j < h; j++) {
-      sumSteer += this.hiddenActs[j] * this.w2[j * 3 + 1];
-      sumBrake += this.hiddenActs[j] * this.w2[j * 3 + 2];
-      sumThr += this.hiddenActs[j] * this.w2[j * 3 + 0];
+    for (let k = 0; k < 3; k++) {
+      let sum = this.b2[k];
+      for (let j = 0; j < h; j++) sum += this.hiddenActs[j] * this.w2[j * 3 + k];
+      const y = Math.tanh(sum);
+      const err = targets[k] - y;
+      const dOut = err * (1 - y * y);
+      for (let j = 0; j < h; j++) {
+        dH[j] += dOut * this.w2[j * 3 + k];
+      }
+      this.b2[k] += lr * dOut;
+      for (let j = 0; j < h; j++) {
+        this.w2[j * 3 + k] += lr * dOut * this.hiddenActs[j];
+      }
     }
-    const errS = targetSteer - Math.tanh(sumSteer);
-    const errB = targetBrakeTanh - Math.tanh(sumBrake);
-    const errT = targetThrottleTanh - Math.tanh(sumThr);
 
     for (let j = 0; j < h; j++) {
       const a = this.hiddenActs[j];
-      this.w2[j * 3 + 1] += lr * errS * a;
-      this.w2[j * 3 + 2] += lr * errB * a;
-      this.w2[j * 3 + 0] += lr * errT * a;
-    }
-    this.b2[1] += lr * errS;
-    this.b2[2] += lr * errB;
-    this.b2[0] += lr * errT;
-
-    // Also nudge input→hidden for strong ray / lateral signals
-    for (let i = 0; i < this.inSize; i++) {
-      const x = input[i] ?? 0;
-      if (Math.abs(x) < 0.05) continue;
-      for (let j = 0; j < Math.min(4, h); j++) {
-        this.w1[i * h + j] += lr * 0.35 * errS * x * (j % 2 === 0 ? 1 : -1);
+      const d = dH[j] * (1 - a * a);
+      this.b1[j] += lr * 0.35 * d;
+      for (let i = 0; i < this.inSize; i++) {
+        const x = input[i] ?? 0;
+        if (Math.abs(x) < 0.02) continue;
+        this.w1[i * h + j] += lr * 0.35 * d * x;
       }
     }
   }
@@ -164,32 +164,37 @@ export class FastBrain {
    */
   static centerlineSeed(inSize = 14): FastBrain {
     const b = new FastBrain(inSize, 16, 3);
-    b.randomize(0.02);
-    b.b2[0] = 1.2;
+    b.randomize(0.015);
+    // Prefer throttle + mild brake; steer near zero until rays/lateral demand it
+    b.b2[0] = 1.35;
     b.b2[1] = 0;
-    b.b2[2] = -0.2;
+    b.b2[2] = -0.35;
 
     for (let r = 0; r < 5; r++) {
-      const w = 0.55 + (4 - r) * 0.08;
+      const w = 0.4 + (4 - r) * 0.06;
       b.w1[r * 16 + 0] = -w;
       b.w1[(10 - r) * 16 + 1] = -w;
     }
-    b.w1[5 * 16 + 2] = -1.4;
-    b.w1[5 * 16 + 3] = 1.1;
+    // Front ray → brake / cut throttle (not a hard steer)
+    b.w1[5 * 16 + 2] = -1.2;
+    b.w1[5 * 16 + 3] = 1.0;
 
-    b.w2[0 * 3 + 1] = 1.4;
-    b.w2[1 * 3 + 1] = -1.4;
-    b.w2[2 * 3 + 2] = 1.3;
-    b.w2[3 * 3 + 0] = -1.0;
+    b.w2[0 * 3 + 1] = 1.05;
+    b.w2[1 * 3 + 1] = -1.05;
+    b.w2[2 * 3 + 2] = 1.25;
+    b.w2[3 * 3 + 0] = -0.9;
 
-    if (inSize > 11) b.w1[11 * 16 + 4] = -0.6;
+    if (inSize > 11) b.w1[11 * 16 + 4] = -0.45;
     if (inSize > 12) {
-      b.w1[12 * 16 + 5] = -1.3;
-      b.w2[5 * 3 + 1] = 1.5;
+      // Lateral error → gentle recenter (was too aggressive → circles)
+      b.w1[12 * 16 + 5] = -0.85;
+      b.w2[5 * 3 + 1] = 1.05;
     }
     if (inSize > 13) {
-      b.w1[13 * 16 + 6] = 0.8;
-      b.w2[6 * 3 + 0] = 0.7;
+      // Alignment with tangent supports throttle and damps stray steer
+      b.w1[13 * 16 + 6] = 1.1;
+      b.w2[6 * 3 + 0] = 0.85;
+      b.w2[6 * 3 + 1] = 0; // don't invent steer from alignment
     }
     return b;
   }

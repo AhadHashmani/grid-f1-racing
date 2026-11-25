@@ -3,7 +3,7 @@ import { FastTrack } from "../sim/FastTrack";
 import { FastTrainer } from "../sim/FastTrainer";
 import type { ControlPoint } from "../track/Track";
 
-const SAVE_KEY = "grid-f1-champion-v3";
+const SAVE_KEY = "grid-f1-champion-v4";
 
 export type ChampionSave = {
   brain: ReturnType<FastBrain["toJSON"]>;
@@ -20,8 +20,8 @@ export class Trainer {
   trackHash = "";
   champion: FastBrain | null = null;
   fast: FastTrainer | null = null;
-  private population = 24;
-  private maxFrames = 2400;
+  private population = 32;
+  private maxFrames = 2800;
   private lapAnnounced = false;
   private lastSyncedGen = -1;
 

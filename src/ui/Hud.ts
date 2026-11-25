@@ -119,6 +119,7 @@ export class Hud {
           <li>Then <strong>Train AI</strong> — watch the swarm learn your curves</li>
         </ol>
         <div class="edit-coach-actions">
+          <button type="button" class="action-btn" data-action="random-track">Random Layout</button>
           <button type="button" class="action-btn" data-action="reset-track">Reset Layout</button>
           <button type="button" class="action-btn primary" data-action="start-train">Train This Track</button>
         </div>

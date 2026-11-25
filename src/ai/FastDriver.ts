@@ -46,7 +46,7 @@ export function driveWithFastBrain(
   let front = 1;
 
   if (fastTrack) {
-    const proj = fastTrack.project(car.position.x, car.position.z);
+    const proj = fastTrack.project(car.position.x, car.position.z, car.lastProgress);
     progress = proj.progress;
     lateral = proj.lateral;
     fillSense(
@@ -93,6 +93,42 @@ export function driveWithFastBrain(
   brain.think(input, out);
   brain.crashBook.apply(progress, lateral, input[5], out);
   front = input[Math.floor(DRIVE.rayCount / 2)];
+  const align = input[DRIVE.rayCount + 2];
+  const latN = input[DRIVE.rayCount + 1];
+  if (front > 0.55 && Math.abs(latN) < 0.22 && align > 0.55) {
+    out[1] *= 0.25;
+  }
+
+  // Blend NN with pure-pursuit + soft recenter so race/watch survive custom layouts
+  if (fastTrack) {
+    const absLat = Math.abs(latN);
+    if (absLat > 0.18) {
+      const pull = Math.min(0.55, absLat * 0.4);
+      const cen = fastTrack.sampleAtProgress(progress);
+      car.position.x += (cen.x - car.position.x) * pull * 0.22;
+      car.position.z += (cen.z - car.position.z) * pull * 0.22;
+    }
+    const total = Math.max(fastTrack.totalLength, 1);
+    let look = Math.max(6, Math.min(16, 6 + car.speed * 0.4));
+    if (front < 0.5) look *= 0.45;
+    if (absLat > 0.4) look = Math.min(look, 7);
+    const target = fastTrack.sampleAtProgress(progress + look / total);
+    const dx = target.x - car.position.x;
+    const dz = target.z - car.position.z;
+    let err = Math.atan2(dx, dz) - car.yaw;
+    while (err > Math.PI) err -= Math.PI * 2;
+    while (err < -Math.PI) err += Math.PI * 2;
+    let pSteer = err * 1.55 - latN * 0.95;
+    if (pSteer > 1) pSteer = 1;
+    if (pSteer < -1) pSteer = -1;
+    const pBrake = front < 0.28 ? 0.85 : front < 0.42 || Math.abs(err) > 0.7 ? 0.35 : 0.05;
+    const pThr = front < 0.28 ? 0.2 : Math.abs(err) > 0.7 ? 0.55 : 0.92;
+    const assist = Math.min(0.78, 0.4 + absLat * 0.5 + (front < 0.4 ? 0.22 : 0));
+    out[0] = out[0] * (1 - assist) + pThr * assist;
+    out[1] = out[1] * (1 - assist) + pSteer * assist;
+    out[2] = out[2] * (1 - assist) + pBrake * assist;
+  }
+
   car.applyAnalog(out[0], out[1], out[2], dt);
   if (front < DRIVE.frontSlow) {
     car.speed = Math.min(car.speed, DRIVE.frontMin + front * DRIVE.frontScale);

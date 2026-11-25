@@ -10,7 +10,7 @@ import { FastTrack } from "../sim/FastTrack";
 import { DRIVE } from "../sim/driveParams";
 import { Track } from "../track/Track";
 import { TrackEditor } from "../track/TrackEditor";
-import { DEFAULT_CONTROL_POINTS } from "../track/defaultTrack";
+import { DEFAULT_CONTROL_POINTS, generateRandomTrack } from "../track/defaultTrack";
 import { Hud, type GameMode } from "../ui/Hud";
 
 export class Game {
@@ -170,6 +170,14 @@ export class Game {
         this.fitOverview();
         this.setEditCamera();
         this.hud.showBanner("TRACK RESET");
+        break;
+      case "random-track":
+        this.editor.resetToDefault(generateRandomTrack());
+        this.checkpoints = this.track.getCheckpointProgresses();
+        this.trackDirty = true;
+        this.fitOverview();
+        this.setEditCamera();
+        this.hud.showBanner("RANDOM LAYOUT");
         break;
       case "retrain-fresh":
         this.beginTraining(true);
@@ -398,7 +406,8 @@ export class Game {
 
   private updateTraining() {
     // Visible swarm: every car drives in real-time (sped up a bit)
-    const result = this.trainer.liveStep(5);
+    // 3 physics ticks/frame — fast enough to learn, slow enough to not look like spinning
+    const result = this.trainer.liveStep(3);
     this.syncVisualFromFast();
 
     if (result.justLapped) {

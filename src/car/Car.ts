@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { DRIVE } from "../sim/driveParams";
+import { DRIVE, steerAuthority } from "../sim/driveParams";
 import type { Track } from "../track/Track";
 import { createF1CarMesh } from "./CarMesh";
 
@@ -131,9 +131,10 @@ export class Car {
       );
       this.speed = Math.max(0, this.speed - this.acceleration * DRIVE.drag * dt);
     }
+    const auth = steerAuthority(this.speed);
     const steerFactor =
       DRIVE.steerBase + DRIVE.steerSpeed * Math.min(1, Math.abs(this.speed) / this.maxSpeed);
-    this.yaw += steer * this.rotSpeed * steerFactor * dt;
+    this.yaw += steer * auth * this.rotSpeed * steerFactor * dt;
     this.position.x += Math.sin(this.yaw) * this.speed * dt;
     this.position.z += Math.cos(this.yaw) * this.speed * dt;
     this.syncMesh();
