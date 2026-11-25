@@ -61,7 +61,8 @@ export class FastBrain {
     progress: number,
     lateral: number,
   ) {
-    const front = input[5] ?? 0.5;
+    const mid = Math.floor(Math.max(3, this.inSize - 3) / 2);
+    const front = input[mid] ?? 0.5;
     const lesson = this.crashBook.remember(progress, lateral, front, badSteer);
     this.imitate(input, 0.25, lesson.steer, lesson.brake, 0.04);
   }
@@ -170,14 +171,16 @@ export class FastBrain {
     b.b2[1] = 0;
     b.b2[2] = -0.35;
 
-    for (let r = 0; r < 5; r++) {
-      const w = 0.4 + (4 - r) * 0.06;
+    const rays = Math.max(3, inSize - 3);
+    const mid = Math.floor(rays / 2);
+    for (let r = 0; r < mid; r++) {
+      const w = 0.4 + (mid - 1 - r) * 0.06;
       b.w1[r * 16 + 0] = -w;
-      b.w1[(10 - r) * 16 + 1] = -w;
+      b.w1[(rays - 1 - r) * 16 + 1] = -w;
     }
     // Front ray → brake / cut throttle (not a hard steer)
-    b.w1[5 * 16 + 2] = -1.2;
-    b.w1[5 * 16 + 3] = 1.0;
+    b.w1[mid * 16 + 2] = -1.2;
+    b.w1[mid * 16 + 3] = 1.0;
 
     b.w2[0 * 3 + 1] = 1.05;
     b.w2[1 * 3 + 1] = -1.05;

@@ -58,9 +58,14 @@ export function driveWithFastBrain(
       proj.lateral,
       proj.tx,
       proj.tz,
-      (ox, oz, dx, dz) => fastTrack.raycast(ox, oz, dx, dz, DRIVE.rayRange),
+      (ox, oz, dx, dz) =>
+        fastTrack.raycast(ox, oz, dx, dz, DRIVE.rayRange, car.lastProgress),
     );
     if (!proj.onTrack) {
+      const clamped = fastTrack.resolveWall(car.position.x, car.position.z, car.lastProgress);
+      car.position.x = clamped.x;
+      car.position.z = clamped.z;
+      car.syncMesh();
       car.alive = false;
       car.setGhost(true);
       return;
@@ -84,15 +89,18 @@ export function driveWithFastBrain(
         track.raycast(new THREE.Vector3(ox, 0.35, oz), new THREE.Vector3(dx, 0, dz), DRIVE.rayRange),
     );
     if (!proj.onTrack) {
+      track.resolveWall(car.position);
+      car.syncMesh();
       car.alive = false;
       car.setGhost(true);
       return;
     }
   }
 
+  const midRay = Math.floor(DRIVE.rayCount / 2);
   brain.think(input, out);
-  brain.crashBook.apply(progress, lateral, input[5], out);
-  front = input[Math.floor(DRIVE.rayCount / 2)];
+  brain.crashBook.apply(progress, lateral, input[midRay], out);
+  front = input[midRay];
   const align = input[DRIVE.rayCount + 2];
   const latN = input[DRIVE.rayCount + 1];
   if (front > 0.55 && Math.abs(latN) < 0.22 && align > 0.55) {
@@ -133,6 +141,23 @@ export function driveWithFastBrain(
   if (front < DRIVE.frontSlow) {
     car.speed = Math.min(car.speed, DRIVE.frontMin + front * DRIVE.frontScale);
   }
+
+  // Post-move wall clamp so champion never phases through barriers
+  if (fastTrack) {
+    const after = fastTrack.resolveWall(car.position.x, car.position.z, progress);
+    car.position.x = after.x;
+    car.position.z = after.z;
+    car.lastProgress = after.progress;
+    car.syncMesh();
+    if (after.hit) {
+      car.alive = false;
+      car.setGhost(true);
+    }
+  } else if (track.resolveWall(car.position)) {
+    car.syncMesh();
+    car.alive = false;
+    car.setGhost(true);
+  }
 }
 
 /** Sense-only helper for drawing leader rays during training. */
@@ -151,7 +176,13 @@ export function senseForDisplay(
     const rel = DRIVE.raySpread / 2 - DRIVE.raySpread * t;
     const ang = yaw + rel;
     if (fastTrack) {
-      outDistances[i] = fastTrack.raycast(x, z, Math.sin(ang), Math.cos(ang), DRIVE.rayRange);
+      outDistances[i] = fastTrack.raycast(
+        x,
+        z,
+        Math.sin(ang),
+        Math.cos(ang),
+        DRIVE.rayRange,
+      );
     } else {
       outDistances[i] = track.raycast(
         new THREE.Vector3(x, 0.35, z),

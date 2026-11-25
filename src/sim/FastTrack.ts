@@ -1,3 +1,5 @@
+import { DRIVE, driveHalf, wallFace } from "./driveParams";
+
 export type ControlPoint = { x: number; z: number };
 
 export type Sample = {
@@ -57,7 +59,7 @@ export class FastTrack {
   private buildSamples() {
     const raw: { x: number; z: number }[] = [];
     const n = this.controlPoints.length;
-    const steps = Math.max(10, Math.floor(320 / n));
+    const steps = Math.max(12, Math.floor(400 / n));
     for (let i = 0; i < n; i++) {
       for (let s = 0; s < steps; s++) raw.push(this.pointAt(i, s / steps));
     }
@@ -149,26 +151,78 @@ export class FastTrack {
     }
     const s = this.samples[best];
     const lateral = (x - s.x) * s.nx + (z - s.z) * s.nz;
+    // Impassable walls sit on the asphalt edge — car body must stay inside
     return {
       progress: s.distance / total,
       index: best,
       lateral,
-      onTrack: Math.abs(lateral) <= this.width * 0.5 + 0.55,
+      onTrack: Math.abs(lateral) <= driveHalf(this.width),
       tx: s.tx,
       tz: s.tz,
     };
   }
 
-  raycast(x: number, z: number, dx: number, dz: number, maxDist = 30): number {
+  /**
+   * Clamp to the inner wall face. Returns hit=true when the pose was outside
+   * (caller should treat as a crash so cars never visually phase through).
+   */
+  resolveWall(
+    x: number,
+    z: number,
+    preferProgress?: number,
+  ): { x: number; z: number; progress: number; lateral: number; hit: boolean; tx: number; tz: number } {
+    const proj = this.project(x, z, preferProgress);
+    const limit = driveHalf(this.width);
+    if (Math.abs(proj.lateral) <= limit) {
+      return {
+        x,
+        z,
+        progress: proj.progress,
+        lateral: proj.lateral,
+        hit: false,
+        tx: proj.tx,
+        tz: proj.tz,
+      };
+    }
+    const s = this.samples[proj.index];
+    const lat = Math.sign(proj.lateral) * limit;
+    return {
+      x: s.x + s.nx * lat,
+      z: s.z + s.nz * lat,
+      progress: proj.progress,
+      lateral: proj.lateral,
+      hit: true,
+      tx: proj.tx,
+      tz: proj.tz,
+    };
+  }
+
+  /**
+   * Ray hits the asphalt/wall face (not a soft outer margin).
+   * preferProgress keeps folded custom maps from snapping to the wrong ribbon.
+   */
+  raycast(
+    x: number,
+    z: number,
+    dx: number,
+    dz: number,
+    maxDist = DRIVE.rayRange,
+    preferProgress?: number,
+  ): number {
     const len = Math.hypot(dx, dz) || 1;
     dx /= len;
     dz /= len;
-    const step = 0.7;
-    for (let d = 0.8; d <= maxDist; d += step) {
+    const face = wallFace(this.width);
+    const step = DRIVE.rayStep;
+    const start = 0.45;
+    let hint = preferProgress;
+    for (let d = start; d <= maxDist; d += step) {
       const px = x + dx * d;
       const pz = z + dz * d;
-      if (!this.project(px, pz).onTrack) {
-        return Math.max(0, (d - 0.8) / (maxDist - 0.8));
+      const proj = this.project(px, pz, hint);
+      hint = proj.progress;
+      if (Math.abs(proj.lateral) >= face) {
+        return Math.max(0, (d - start) / (maxDist - start));
       }
     }
     return 1;

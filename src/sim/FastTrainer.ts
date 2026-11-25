@@ -168,7 +168,14 @@ export class FastTrainer {
       const t = i / (RAYS - 1);
       const rel = DRIVE.raySpread / 2 - DRIVE.raySpread * t;
       const ang = a.yaw + rel;
-      this.input[i] = this.track.raycast(a.x, a.z, Math.sin(ang), Math.cos(ang), DRIVE.rayRange);
+      this.input[i] = this.track.raycast(
+        a.x,
+        a.z,
+        Math.sin(ang),
+        Math.cos(ang),
+        DRIVE.rayRange,
+        a.progress,
+      );
     }
     const proj = this.track.project(a.x, a.z, a.progress);
     this.input[RAYS] = Math.min(1, a.speed / 22);
@@ -194,7 +201,12 @@ export class FastTrainer {
       brake = this.out[2];
     } else {
       a.brain.think(this.input, this.out);
-      a.brain.crashBook.apply(proj0.progress, proj0.lateral, this.input[5], this.out);
+      a.brain.crashBook.apply(
+        proj0.progress,
+        proj0.lateral,
+        this.input[Math.floor(RAYS / 2)],
+        this.out,
+      );
       throttle = this.out[0];
       steer = this.out[1];
       brake = this.out[2];
@@ -250,15 +262,18 @@ export class FastTrainer {
     a.z += Math.cos(a.yaw) * a.speed * dt;
     a.framesAlive += 1;
 
-    const proj = this.track.project(a.x, a.z, a.progress);
-    if (!proj.onTrack) {
+    // Snap to wall face — never allow phasing through barriers
+    const hit = this.track.resolveWall(a.x, a.z, a.progress);
+    a.x = hit.x;
+    a.z = hit.z;
+    if (hit.hit) {
       a.alive = false;
       a.crashed = true;
-      // Machine learning: this bot remembers and never repeats this crash
-      a.brain.learnFromCrash(this.input, a.lastSteer, proj.progress, proj.lateral);
-      this.score(a, proj.progress);
+      a.brain.learnFromCrash(this.input, a.lastSteer, hit.progress, hit.lateral);
+      this.score(a, hit.progress);
       return;
     }
+    const proj = this.track.project(a.x, a.z, a.progress);
 
     const prev = a.progress;
     const wrapped = prev > 0.82 && proj.progress < 0.18;
@@ -398,7 +413,14 @@ export class FastTrainer {
           const t = i / (RAYS - 1);
           const rel = DRIVE.raySpread / 2 - DRIVE.raySpread * t;
           const ang = yaw + rel;
-          this.input[i] = this.track.raycast(x, z, Math.sin(ang), Math.cos(ang), DRIVE.rayRange);
+          this.input[i] = this.track.raycast(
+            x,
+            z,
+            Math.sin(ang),
+            Math.cos(ang),
+            DRIVE.rayRange,
+            progress,
+          );
         }
         const proj = this.track.project(x, z, progress);
         this.input[RAYS] = Math.min(1, speed / 22);

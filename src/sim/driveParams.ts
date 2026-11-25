@@ -17,10 +17,24 @@ export const DRIVE = {
   frontSlow: 0.38,
   frontMin: 7.5,
   frontScale: 18,
-  rayCount: 11,
-  rayRange: 28,
-  raySpread: Math.PI * 0.9,
+  rayCount: 13,
+  rayRange: 26,
+  raySpread: Math.PI * 0.95,
+  /** Half car width — walls are impassable at asphaltEdge − this. */
+  carHalf: 0.55,
+  /** Ray steps — finer = walls read earlier/clearer for the NN. */
+  rayStep: 0.32,
 } as const;
+
+/** Driveable half-width (asphalt edge minus car body). */
+export function driveHalf(trackWidth: number): number {
+  return trackWidth * 0.5 - DRIVE.carHalf;
+}
+
+/** Absolute lateral where a ray considers the wall hit (asphalt face). */
+export function wallFace(trackWidth: number): number {
+  return trackWidth * 0.5;
+}
 
 /** How much of commanded steer is allowed at the current speed. */
 export function steerAuthority(speed: number): number {

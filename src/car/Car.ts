@@ -29,7 +29,6 @@ export class Car {
   acceleration: number;
   color: number;
   translucent = false;
-  private offTrackFrames = 0;
   private baseOpacityMaterials: OpacityMaterial[] = [];
 
   constructor(
@@ -74,7 +73,6 @@ export class Car {
     this.frameOfLastCp = 0;
     this.lastProgress = 0;
     this.bestProgress = 0;
-    this.offTrackFrames = 0;
     this.setGhost(false);
     this.syncMesh();
   }
@@ -141,33 +139,19 @@ export class Car {
   }
 
   updateRaceProgress(track: Track, checkpoints: number[], frame: number, training = false) {
-    const { progress, onTrack, lateral } = track.project(this.position);
+    // Walls are rigid — clamp first so the mesh never sits past the barrier
+    if (track.resolveWall(this.position)) {
+      this.syncMesh();
+      this.alive = false;
+      this.setGhost(true);
+      const { progress } = track.project(this.position);
+      this.updateScore(checkpoints.length, progress);
+      return;
+    }
 
-    if (!onTrack) {
-      this.offTrackFrames += 1;
-      // Short grace + gentle recenter during training so genes can recover from near-misses
-      if (training && this.offTrackFrames <= 8) {
-        this.speed *= 0.82;
-        const sample = track.sampleAtProgress(progress);
-        this.position.lerp(sample.position.clone().setY(this.position.y), 0.18);
-        this.yaw = THREE.MathUtils.lerp(
-          this.yaw,
-          Math.atan2(sample.tangent.x, sample.tangent.z),
-          0.12,
-        );
-        this.syncMesh();
-      } else {
-        this.alive = false;
-        this.setGhost(true);
-        this.updateScore(checkpoints.length, progress);
-        return;
-      }
-    } else {
-      this.offTrackFrames = 0;
-      // Soft keep-center pressure helps survival on tight edits
-      if (training && Math.abs(lateral) > track.width * 0.28) {
-        this.speed *= 0.985;
-      }
+    const { progress, lateral } = track.project(this.position);
+    if (training && Math.abs(lateral) > track.width * 0.28) {
+      this.speed *= 0.985;
     }
 
     const wrappedForward = this.lastProgress > 0.88 && progress < 0.12;

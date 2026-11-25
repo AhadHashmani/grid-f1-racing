@@ -3,7 +3,7 @@ import { FastTrack } from "../sim/FastTrack";
 import { FastTrainer } from "../sim/FastTrainer";
 import type { ControlPoint } from "../track/Track";
 
-const SAVE_KEY = "grid-f1-champion-v4";
+const SAVE_KEY = "grid-f1-champion-v5";
 
 export type ChampionSave = {
   brain: ReturnType<FastBrain["toJSON"]>;

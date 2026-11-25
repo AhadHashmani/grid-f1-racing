@@ -17,8 +17,8 @@ export const DEFAULT_CONTROL_POINTS: ControlPoint[] = [
 ];
 
 export const TRACK_WIDTH = 14;
-/** Lower sample count + instanced props keeps first paint snappy. */
-export const TRACK_SAMPLES = 160;
+/** Denser samples = smoother continuous walls on generated layouts. */
+export const TRACK_SAMPLES = 220;
 
 /** Procedural closed circuit — irregular ring with pinch points and hairpins. */
 export function generateRandomTrack(seed = Date.now()): ControlPoint[] {

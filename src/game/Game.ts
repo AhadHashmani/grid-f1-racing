@@ -41,7 +41,7 @@ export class Game {
   private container: HTMLElement;
   private trackDirty = false;
   private leaderPulse = 0;
-  private sensorRays = new SensorRays(11);
+  private sensorRays = new SensorRays(DRIVE.rayCount);
   private senseBuf = new Float32Array(11);
   /** Same geometry the brains trained on — used for race/watch sensing. */
   private driveTrack: FastTrack | null = null;

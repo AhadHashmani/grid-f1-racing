@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { DRIVE, driveHalf, wallFace } from "../sim/driveParams";
 import { DEFAULT_CONTROL_POINTS, TRACK_SAMPLES, TRACK_WIDTH } from "./defaultTrack";
 
 export type ControlPoint = { x: number; z: number };
@@ -175,17 +176,17 @@ export class Track {
     dashes.instanceMatrix.needsUpdate = true;
     this.meshGroup.add(dashes);
 
-    // Kerbs — red + white instances (skip every other for fewer draws)
-    const kerbStep = 2;
+    // Kerbs flush with asphalt edge — dense red/white so the boundary reads clearly
+    const kerbStep = 1;
     const kerbPerSide = Math.ceil(this.samples.length / kerbStep);
     const kerbRed = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(0.55, 0.12, 1.9),
+      new THREE.BoxGeometry(0.7, 0.16, 1.15),
       new THREE.MeshLambertMaterial({ color: 0xe10600 }),
       kerbPerSide * 2,
     );
     const kerbWhite = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(0.55, 0.12, 1.9),
-      new THREE.MeshLambertMaterial({ color: 0xffffff }),
+      new THREE.BoxGeometry(0.7, 0.16, 1.15),
+      new THREE.MeshLambertMaterial({ color: 0xf5f5f5 }),
       kerbPerSide * 2,
     );
     let ri = 0;
@@ -193,8 +194,8 @@ export class Track {
     for (let side = -1; side <= 1; side += 2) {
       for (let i = 0; i < this.samples.length; i += kerbStep) {
         const s = this.samples[i];
-        const edge = s.position.clone().addScaledVector(s.normal, side * half);
-        dummy.position.copy(edge).setY(0.06);
+        const edge = s.position.clone().addScaledVector(s.normal, side * (half - 0.05));
+        dummy.position.copy(edge).setY(0.08);
         dummy.lookAt(edge.clone().add(s.tangent));
         dummy.updateMatrix();
         if (Math.floor(i / kerbStep) % 2 === 0) kerbRed.setMatrixAt(ri++, dummy.matrix);
@@ -207,28 +208,32 @@ export class Track {
     kerbWhite.instanceMatrix.needsUpdate = true;
     this.meshGroup.add(kerbRed, kerbWhite);
 
-    // Barriers — single instanced mesh
-    const wallStep = 3;
-    const wallCount = Math.ceil(this.samples.length / wallStep) * 2;
-    const walls = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(0.35, 1.1, 2.8),
-      new THREE.MeshLambertMaterial({ color: 0xb8bec8 }),
-      wallCount,
+    // Continuous solid walls — no gaps for cars to visually phase through
+    this.meshGroup.add(this.buildWallRibbon(1, half));
+    this.meshGroup.add(this.buildWallRibbon(-1, half));
+
+    // Posts every few samples for rigid “barrier” silhouette
+    const postStep = 4;
+    const postCount = Math.ceil(this.samples.length / postStep) * 2;
+    const posts = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.22, 1.7, 0.22),
+      new THREE.MeshLambertMaterial({ color: 0x6a717c }),
+      postCount,
     );
-    let wallI = 0;
+    let postI = 0;
     for (let side = -1; side <= 1; side += 2) {
-      for (let i = 0; i < this.samples.length; i += wallStep) {
+      for (let i = 0; i < this.samples.length; i += postStep) {
         const s = this.samples[i];
-        const pos = s.position.clone().addScaledVector(s.normal, side * (half + 0.7));
-        dummy.position.copy(pos).setY(0.55);
-        dummy.lookAt(pos.clone().add(s.tangent));
+        const pos = s.position.clone().addScaledVector(s.normal, side * (half + 0.28));
+        dummy.position.copy(pos).setY(0.85);
+        dummy.rotation.set(0, 0, 0);
         dummy.updateMatrix();
-        walls.setMatrixAt(wallI++, dummy.matrix);
+        posts.setMatrixAt(postI++, dummy.matrix);
       }
     }
-    walls.count = wallI;
-    walls.instanceMatrix.needsUpdate = true;
-    this.meshGroup.add(walls);
+    posts.count = postI;
+    posts.instanceMatrix.needsUpdate = true;
+    this.meshGroup.add(posts);
 
     // Finish / start stripe
     const start = this.samples[0];
@@ -292,6 +297,51 @@ export class Track {
     return `${parts.join("|")}|w${this.width.toFixed(1)}`;
   }
 
+  /** Continuous vertical barrier ribbon at the asphalt edge. */
+  private buildWallRibbon(side: number, half: number): THREE.Mesh {
+    const n = this.samples.length;
+    const wallH = 1.45;
+    const thick = 0.42;
+    const positions: number[] = [];
+    const indices: number[] = [];
+    // Quad strip: inner face (asphalt) + outer face
+    for (let i = 0; i < n; i++) {
+      const s = this.samples[i];
+      const ix = s.position.x + s.normal.x * side * half;
+      const iz = s.position.z + s.normal.z * side * half;
+      const ox = s.position.x + s.normal.x * side * (half + thick);
+      const oz = s.position.z + s.normal.z * side * (half + thick);
+      // 4 verts per sample: inner-bottom, inner-top, outer-bottom, outer-top
+      positions.push(ix, 0, iz, ix, wallH, iz, ox, 0, oz, ox, wallH, oz);
+    }
+    for (let i = 0; i < n; i++) {
+      const a = i * 4;
+      const b = ((i + 1) % n) * 4;
+      // Inner face (visible from track)
+      if (side > 0) {
+        indices.push(a, b, a + 1, a + 1, b, b + 1);
+        indices.push(a + 2, a + 3, b + 2, a + 3, b + 3, b + 2);
+      } else {
+        indices.push(a, a + 1, b, a + 1, b + 1, b);
+        indices.push(a + 2, b + 2, a + 3, a + 3, b + 2, b + 3);
+      }
+      // Top cap
+      indices.push(a + 1, b + 1, a + 3, a + 3, b + 1, b + 3);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    const mat = new THREE.MeshLambertMaterial({
+      color: 0xc5ccd6,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.castShadow = false;
+    mesh.receiveShadow = true;
+    return mesh;
+  }
+
   /** Returns signed progress 0..1 and nearest sample index. */
   project(position: THREE.Vector3): { progress: number; index: number; lateral: number; onTrack: boolean } {
     let best = 0;
@@ -306,23 +356,40 @@ export class Track {
     const sample = this.samples[best];
     const toCar = position.clone().sub(sample.position);
     const lateral = toCar.dot(sample.normal);
-    const onTrack = Math.abs(lateral) <= this.width * 0.5 + 0.35;
+    const onTrack = Math.abs(lateral) <= driveHalf(this.width);
     const progress = sample.distance / Math.max(this.totalLength, 1);
     return { progress, index: best, lateral, onTrack };
   }
 
   /**
-   * Raycast in XZ plane from origin along direction.
-   * Returns normalized distance 0..1 (1 = no hit within maxDist).
+   * Clamp a world position onto the inner wall face.
+   * Mutates `position` XZ; returns true if it hit (caller should crash).
    */
-  raycast(origin: THREE.Vector3, direction: THREE.Vector3, maxDist = 28): number {
+  resolveWall(position: THREE.Vector3): boolean {
+    const proj = this.project(position);
+    const limit = driveHalf(this.width);
+    if (Math.abs(proj.lateral) <= limit) return false;
+    const sample = this.samples[proj.index];
+    const lat = Math.sign(proj.lateral) * limit;
+    position.x = sample.position.x + sample.normal.x * lat;
+    position.z = sample.position.z + sample.normal.z * lat;
+    return true;
+  }
+
+  /**
+   * Raycast in XZ plane from origin along direction.
+   * Hits the asphalt/wall face so bots “see” barriers early and clearly.
+   */
+  raycast(origin: THREE.Vector3, direction: THREE.Vector3, maxDist = DRIVE.rayRange): number {
     const dir = direction.clone().setY(0).normalize();
-    const step = 0.45;
-    for (let d = 0.6; d <= maxDist; d += step) {
+    const step = DRIVE.rayStep;
+    const start = 0.45;
+    const face = wallFace(this.width);
+    for (let d = start; d <= maxDist; d += step) {
       const p = origin.clone().addScaledVector(dir, d);
-      const { onTrack } = this.project(p);
-      if (!onTrack) {
-        return Math.max(0, (d - 0.6) / (maxDist - 0.6));
+      const { lateral } = this.project(p);
+      if (Math.abs(lateral) >= face) {
+        return Math.max(0, (d - start) / (maxDist - start));
       }
     }
     return 1;
