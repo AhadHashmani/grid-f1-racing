@@ -21,7 +21,7 @@ export const DRIVE = {
   rayRange: 26,
   raySpread: Math.PI * 0.95,
   /** Half car width — walls are impassable at asphaltEdge − this. */
-  carHalf: 0.75,
+  carHalf: 0.95,
   /** Ray steps — finer = walls read earlier/clearer for the NN. */
   rayStep: 0.32,
 } as const;

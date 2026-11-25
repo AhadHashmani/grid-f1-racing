@@ -212,35 +212,38 @@ export class Track {
     this.meshGroup.add(this.buildRunoffRibbon(1, half));
     this.meshGroup.add(this.buildRunoffRibbon(-1, half));
 
-    // Dense overlapping barrier blocks — readable as a solid wall from top-down
-    const segLen = Math.max(1.1, this.totalLength / Math.max(this.samples.length, 1) * 1.25);
-    const wallBlocks = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(0.85, 1.55, segLen),
-      new THREE.MeshLambertMaterial({ color: 0xa8b0bc }),
-      this.samples.length * 2,
-    );
-    let wallI = 0;
-    for (let side = -1; side <= 1; side += 2) {
-      for (let i = 0; i < this.samples.length; i++) {
-        const s = this.samples[i];
-        const pos = s.position.clone().addScaledVector(s.normal, side * (half + 0.42));
-        dummy.position.copy(pos).setY(0.78);
-        dummy.lookAt(pos.clone().add(s.tangent));
-        dummy.updateMatrix();
-        wallBlocks.setMatrixAt(wallI++, dummy.matrix);
-      }
-    }
-    wallBlocks.count = wallI;
-    wallBlocks.instanceMatrix.needsUpdate = true;
-    this.meshGroup.add(wallBlocks);
-
-    // Wide top deck (Armco-style) — thick band visible from overview camera
+    // Continuous walls only (no long boxes) — boxes poked through asphalt on tight bends
+    this.meshGroup.add(this.buildWallBody(1, half));
+    this.meshGroup.add(this.buildWallBody(-1, half));
     this.meshGroup.add(this.buildWallTopDeck(1, half));
     this.meshGroup.add(this.buildWallTopDeck(-1, half));
-
-    // Accent stripe on the inner wall face so bots’ “wall” reads clearly
     this.meshGroup.add(this.buildWallFaceStripe(1, half));
     this.meshGroup.add(this.buildWallFaceStripe(-1, half));
+
+    // Short posts outside the wall — never on the racing surface
+    const postStep = 3;
+    const postCount = Math.ceil(this.samples.length / postStep) * 2;
+    const posts = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.28, 1.65, 0.28),
+      new THREE.MeshLambertMaterial({ color: 0x6e7684 }),
+      postCount,
+    );
+    let postI = 0;
+    for (let side = -1; side <= 1; side += 2) {
+      for (let i = 0; i < this.samples.length; i += postStep) {
+        const s = this.samples[i];
+        const pos = s.position.clone().addScaledVector(s.normal, side * (half + 0.72));
+        // Skip if this post would sit on asphalt of another segment
+        if (this.project(pos).onTrack) continue;
+        dummy.position.copy(pos).setY(0.82);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        posts.setMatrixAt(postI++, dummy.matrix);
+      }
+    }
+    posts.count = postI;
+    posts.instanceMatrix.needsUpdate = true;
+    this.meshGroup.add(posts);
 
     // Finish / start stripe
     const start = this.samples[0];
@@ -335,12 +338,48 @@ export class Track {
     );
   }
 
+  /** Solid vertical wall slab sitting just outside the asphalt edge. */
+  private buildWallBody(side: number, half: number): THREE.Mesh {
+    const n = this.samples.length;
+    const inner = half + 0.02;
+    const outer = half + 0.7;
+    const positions: number[] = [];
+    const indices: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const s = this.samples[i];
+      const ix = s.position.x + s.normal.x * side * inner;
+      const iz = s.position.z + s.normal.z * side * inner;
+      const ox = s.position.x + s.normal.x * side * outer;
+      const oz = s.position.z + s.normal.z * side * outer;
+      positions.push(ix, 0.02, iz, ix, 1.4, iz, ox, 0.02, oz, ox, 1.4, oz);
+    }
+    for (let i = 0; i < n; i++) {
+      const a = i * 4;
+      const b = ((i + 1) % n) * 4;
+      if (side > 0) {
+        indices.push(a, b, a + 1, a + 1, b, b + 1);
+        indices.push(a + 2, a + 3, b + 2, a + 3, b + 3, b + 2);
+      } else {
+        indices.push(a, a + 1, b, a + 1, b + 1, b);
+        indices.push(a + 2, b + 2, a + 3, a + 3, b + 2, b + 3);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    return new THREE.Mesh(
+      geo,
+      new THREE.MeshLambertMaterial({ color: 0xb4bbc6, side: THREE.DoubleSide }),
+    );
+  }
+
   /** Wide horizontal top of the barrier — unmistakable from the overview cam. */
   private buildWallTopDeck(side: number, half: number): THREE.Mesh {
     const n = this.samples.length;
-    const y = 1.52;
-    const inner = half + 0.05;
-    const outer = half + 0.95;
+    const y = 1.42;
+    const inner = half + 0.02;
+    const outer = half + 0.72;
     const positions: number[] = [];
     const indices: number[] = [];
     for (let i = 0; i < n; i++) {

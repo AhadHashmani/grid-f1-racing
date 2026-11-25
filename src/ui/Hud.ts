@@ -17,18 +17,21 @@ export class Hud {
   private progressFill!: HTMLElement;
   private lessonsEl!: HTMLElement;
   private touchPad!: HTMLElement;
+  private stepHint!: HTMLElement;
+  private raceBtn!: HTMLButtonElement;
+  private watchBtn!: HTMLButtonElement;
   private onMode: ((mode: GameMode) => void) | null = null;
   private onAction: ((action: string) => void) | null = null;
   private onTouch: ((control: "forward" | "left" | "right" | "brake", down: boolean) => void) | null =
     null;
   private lastFireAt = 0;
+  private trainedReady = false;
 
   constructor(parent: HTMLElement) {
     this.root = document.createElement("div");
     this.root.id = "ui";
     parent.appendChild(this.root);
     this.renderShell();
-    // Capture both click and pointerup — some environments drop click after WebGL focus
     this.root.addEventListener("click", this.onRootPointer, true);
     this.root.addEventListener("pointerup", this.onRootPointer, true);
   }
@@ -43,6 +46,23 @@ export class Hud {
     this.onTouch = onTouch ?? null;
     this.bindButtons();
     this.bindTouch();
+  }
+
+  /** Call whenever a champion exists for the current track. */
+  setTrainedReady(ready: boolean) {
+    this.trainedReady = ready;
+    this.raceBtn.classList.toggle("locked", !ready);
+    this.watchBtn.classList.toggle("locked", !ready);
+    this.raceBtn.title = ready ? "Race the trained champion" : "Train the swarm first";
+    this.watchBtn.title = ready ? "Watch the champion alone" : "Train the swarm first";
+    this.updateStepHint();
+  }
+
+  private updateStepHint() {
+    if (!this.stepHint) return;
+    this.stepHint.innerHTML = this.trainedReady
+      ? `<span class="step done">1 Build</span><span class="step done">2 Train</span><span class="step go">3 Race</span>`
+      : `<span class="step">1 Build</span><span class="step go">2 Train</span><span class="step">3 Race</span>`;
   }
 
   private fireAction(action: string) {
@@ -79,7 +99,6 @@ export class Hud {
     }
   };
 
-  /** Direct listeners — backup if delegated hits miss under WebGL overlays. */
   private bindButtons() {
     this.root.querySelectorAll<HTMLElement>("[data-action], [data-mode]").forEach((el) => {
       if ((el as HTMLElement & { __gridBound?: boolean }).__gridBound) return;
@@ -103,27 +122,30 @@ export class Hud {
           <div class="brand-sub">F1 Neuro Racing</div>
         </div>
         <div class="top-controls">
+          <div class="flow-steps" id="flow-steps">
+            <span class="step">1 Build</span><span class="step go">2 Train</span><span class="step">3 Race</span>
+          </div>
           <div class="mode-bar" id="mode-bar">
-            <button type="button" data-mode="edit">Edit Track</button>
-            <button type="button" data-mode="train">Train AI</button>
-            <button type="button" data-mode="watch">Watch Bot</button>
-            <button type="button" data-mode="race">Race Bot</button>
+            <button type="button" data-mode="edit">1 · Build</button>
+            <button type="button" data-mode="train">2 · Train</button>
+            <button type="button" data-mode="watch" class="locked" id="btn-watch">Watch Champ</button>
+            <button type="button" data-mode="race" class="locked" id="btn-race">3 · Race</button>
           </div>
         </div>
       </div>
 
       <div class="edit-coach hidden" id="edit-coach">
-        <div class="edit-coach-title">Track editor</div>
+        <div class="edit-coach-title">Build your track</div>
         <ol>
-          <li><strong>Click and drag</strong> an orange ball to bend that corner</li>
-          <li>The <strong style="color:#00d2be">teal</strong> ball is start / finish — drag it too</li>
-          <li>The asphalt updates live as you drag</li>
-          <li>Then <strong>Train AI</strong> — watch the swarm learn your curves</li>
+          <li><strong>Drag</strong> orange balls to bend corners</li>
+          <li><strong style="color:#00d2be">Teal</strong> = start / finish</li>
+          <li>Or hit <strong>Random Layout</strong> for a fresh circuit</li>
+          <li>Then <strong>Train</strong> — watch every car learn together</li>
         </ol>
         <div class="edit-coach-actions">
           <button type="button" class="action-btn" data-action="random-track">Random Layout</button>
-          <button type="button" class="action-btn" data-action="reset-track">Reset Layout</button>
-          <button type="button" class="action-btn primary" data-action="start-train">Train This Track</button>
+          <button type="button" class="action-btn" data-action="reset-track">Reset</button>
+          <button type="button" class="action-btn primary" data-action="start-train">Train on This Track</button>
         </div>
       </div>
 
@@ -137,11 +159,11 @@ export class Hud {
           <div class="hud-value accent" id="stat-score">0</div>
         </div>
         <div class="hud-card">
-          <div class="hud-label">Alive / Lap</div>
+          <div class="hud-label">Cars Alive</div>
           <div class="hud-value" id="stat-alive">0</div>
         </div>
         <div class="hud-card">
-          <div class="hud-label">Session</div>
+          <div class="hud-label">Time</div>
           <div class="hud-value amber" id="stat-time">00:00.0</div>
         </div>
       </div>
@@ -153,7 +175,7 @@ export class Hud {
 
       <div class="learn-meter hidden" id="learn-meter">
         <div class="learn-meter-top">
-          <span>Leader lap</span>
+          <span>Best car · lap progress</span>
           <span id="stat-lessons">0 lessons</span>
         </div>
         <div class="learn-track">
@@ -173,9 +195,9 @@ export class Hud {
       <div class="help" id="help">
         <h3 id="help-title">How to play</h3>
         <ul>
-          <li>Edit the track, train a swarm, then race the champion</li>
-          <li>Orange balls reshape the circuit in Edit Track</li>
-          <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to drive in Race Bot</li>
+          <li><strong>1 Build</strong> a track</li>
+          <li><strong>2 Train</strong> — watch the whole swarm</li>
+          <li><strong>3 Race</strong> after a car finishes a lap</li>
         </ul>
       </div>
 
@@ -184,14 +206,18 @@ export class Hud {
       <div class="overlay visible" id="overlay">
         <div class="overlay-card">
           <h1>GR<span>ID</span></h1>
+          <p class="overlay-steps">
+            <strong>1.</strong> Build a track &nbsp;→&nbsp;
+            <strong>2.</strong> Watch every car train &nbsp;→&nbsp;
+            <strong>3.</strong> Race the champion
+          </p>
           <p>
-            Sculpt a circuit, watch a swarm of AI cars learn in real time —
-            each crash becomes a lesson that bot never repeats — then race the champion.
+            You always see the full swarm during training. Race unlocks after a bot completes a lap.
           </p>
           <div class="overlay-actions">
-            <button type="button" class="action-btn primary" data-action="start-edit">Build Track</button>
-            <button type="button" class="action-btn" data-action="start-train">Train AI</button>
-            <button type="button" class="action-btn ghost" data-action="start-race">Race Champion</button>
+            <button type="button" class="action-btn primary" data-action="start-edit">1 · Build Track</button>
+            <button type="button" class="action-btn" data-action="start-train">2 · Watch Training</button>
+            <button type="button" class="action-btn ghost" data-action="start-race">3 · Race</button>
           </div>
         </div>
       </div>
@@ -211,12 +237,16 @@ export class Hud {
     this.progressFill = this.root.querySelector("#learn-fill")!;
     this.lessonsEl = this.root.querySelector("#stat-lessons")!;
     this.touchPad = this.root.querySelector("#touch-pad")!;
+    this.stepHint = this.root.querySelector("#flow-steps")!;
+    this.raceBtn = this.root.querySelector("#btn-race")!;
+    this.watchBtn = this.root.querySelector("#btn-watch")!;
 
     this.root.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((btn) => {
       this.modeButtons[btn.dataset.mode!] = btn;
     });
     this.bindButtons();
     this.bindTouch();
+    this.updateStepHint();
   }
 
   private bindTouch() {
@@ -249,54 +279,52 @@ export class Hud {
     this.touchPad.classList.toggle("hidden", mode !== "race");
     this.root.classList.toggle("mode-edit", mode === "edit");
     this.root.querySelector(".train-actions")?.remove();
+    this.updateStepHint();
 
     const help = this.helpEl.querySelector("ul")!;
     if (mode === "edit") {
-      this.helpTitle.textContent = "Editing the track";
+      this.helpTitle.textContent = "Build";
       help.innerHTML = `
-        <li><strong>Drag orange balls</strong> — each one pulls a corner</li>
-        <li><strong style="color:#00d2be">Teal</strong> = start/finish line</li>
-        <li>Camera stays fixed so dragging is easy</li>
-        <li>Then hit <strong>Train AI</strong> to watch the swarm learn</li>
+        <li>Drag balls to reshape the circuit</li>
+        <li>Walls auto-snap so they never cross the road</li>
+        <li>Next: <strong>Train</strong> to watch every car</li>
       `;
     } else if (mode === "train") {
-      this.helpTitle.textContent = "Live training";
+      this.helpTitle.textContent = "Watch the swarm";
       help.innerHTML = `
-        <li>Every car drives at once — crashes fade out as ghosts</li>
-        <li>When a bot crashes, it <strong>learns that mistake</strong> and will not repeat it</li>
-        <li>The pulsing lead car is closest to finishing a clean lap</li>
-        <li><kbd>Space</kbd> jumps to the champion when ready</li>
+        <li>Every colored car is a different brain — all visible</li>
+        <li>Crashes become ghosts · survivors keep learning</li>
+        <li>When one finishes a lap, <strong>Race</strong> unlocks</li>
       `;
       if (!this.root.querySelector(".train-actions")) {
         const actions = document.createElement("div");
         actions.className = "train-actions";
         actions.innerHTML = `
-          <button type="button" class="action-btn" data-action="retrain-fresh">Retrain Fresh</button>
+          <button type="button" class="action-btn" data-action="retrain-fresh">Restart Swarm</button>
           <button type="button" class="action-btn primary" data-action="watch-champ">Watch Champ</button>
         `;
         this.helpEl.appendChild(actions);
         this.bindButtons();
       }
     } else if (mode === "race") {
-      this.helpTitle.textContent = "Race controls";
+      this.helpTitle.textContent = "Race";
       help.innerHTML = `
-        <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows — third person</li>
-        <li>Red = you · Teal = ML bot</li>
-        <li>First to 2 laps wins · stay on asphalt</li>
+        <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> — you are red</li>
+        <li>Teal car = trained champion</li>
+        <li>First to 2 laps wins</li>
       `;
     } else if (mode === "watch") {
-      this.helpTitle.textContent = "Spectating";
+      this.helpTitle.textContent = "Champion";
       help.innerHTML = `
-        <li>Watching the saved champion brain</li>
-        <li>It carries crash lessons from training</li>
-        <li>Resets after each completed lap</li>
+        <li>One trained brain, chase cam</li>
+        <li>Back to <strong>Train</strong> to see the full swarm again</li>
       `;
     } else {
       this.helpTitle.textContent = "How to play";
       help.innerHTML = `
-        <li>Edit the track, train a swarm, then race the champion</li>
-        <li>Orange balls reshape the circuit in Edit Track</li>
-        <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to drive in Race Bot</li>
+        <li><strong>1 Build</strong> a track</li>
+        <li><strong>2 Train</strong> — watch the whole swarm</li>
+        <li><strong>3 Race</strong> after a car finishes a lap</li>
       `;
     }
   }
@@ -316,8 +344,8 @@ export class Hud {
     this.scoreEl.textContent = String(opts.bestScore);
     this.aliveEl.textContent =
       opts.mode === "race" || opts.mode === "watch"
-        ? `L${opts.lap}`
-        : `${opts.alive}${opts.lap > 0 ? ` · L${opts.lap}` : ""}`;
+        ? `Lap ${opts.lap}`
+        : `${opts.alive}${opts.lap > 0 ? ` · Lap ${opts.lap}` : ""}`;
     this.timeEl.textContent = formatTime(opts.timeSec);
     this.speedEl.textContent = String(Math.round(Math.abs(opts.speed) * 8.2));
     if (opts.progress != null) {

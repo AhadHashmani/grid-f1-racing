@@ -74,6 +74,9 @@ export class Game {
     this.editor.setOnChange(() => {
       this.checkpoints = this.track.getCheckpointProgresses();
       this.trackDirty = true;
+      this.trainer.setTrackHash(this.track.hashLayout());
+      this.trainer.champion = null; // layout changed — must retrain
+      this.refreshReadyState();
       this.fitOverview();
       if (this.mode === "edit") this.setEditCamera();
     });
@@ -89,6 +92,7 @@ export class Game {
       (action) => this.handleAction(action),
       (control, down) => this.input.setTouch(control, down),
     );
+    this.refreshReadyState();
 
     window.addEventListener("resize", () => this.onResize());
     window.addEventListener("keydown", (e) => {
@@ -158,6 +162,10 @@ export class Game {
         this.setMode("train");
         break;
       case "start-race":
+        if (!this.hasTrainedChampion()) {
+          this.showTrainFirst();
+          break;
+        }
         this.setMode("race");
         break;
       case "retry-race":
@@ -205,6 +213,32 @@ export class Game {
     this.driveTrack = new FastTrack(this.track.controlPoints, this.track.width);
   }
 
+  private hasTrainedChampion(): boolean {
+    this.trainer.setTrackHash(this.track.hashLayout());
+    return !!(this.trainer.champion || this.trainer.hasSavedChampion());
+  }
+
+  private refreshReadyState() {
+    this.hud.setTrainedReady(this.hasTrainedChampion());
+  }
+
+  private showTrainFirst() {
+    this.mode = "menu";
+    this.clearCars();
+    this.editor.setEnabled(false);
+    this.renderer.domElement.style.pointerEvents = "none";
+    this.hud.setMode("menu");
+    this.hud.showResult(
+      "Train first",
+      "Watch the swarm learn on your track. Race unlocks after a car finishes a full lap.",
+      [
+        { label: "2 · Watch Training", action: "start-train", primary: true },
+        { label: "1 · Build Track", action: "start-edit" },
+        { label: "Menu", action: "back-menu" },
+      ],
+    );
+  }
+
   private beginTraining(forceFresh: boolean) {
     const hash = this.track.hashLayout();
     this.trainer.setTrackHash(hash);
@@ -215,20 +249,17 @@ export class Game {
     this.hud.hideOverlay();
     this.hud.setMode("train");
     this.editor.setEnabled(false);
-    this.renderer.domElement.style.pointerEvents = "auto";
+    this.renderer.domElement.style.pointerEvents = "none"; // overview only — watch all cars
     this.buildVisualSwarm();
     this.fitOverview();
+    this.refreshReadyState();
   }
 
   setMode(mode: GameMode) {
-    this.mode = mode;
     this.finished = false;
     this.sessionTime = 0;
     this.hud.hideOverlay();
-    this.hud.setMode(mode);
     this.editor.setEnabled(mode === "edit");
-    this.renderer.domElement.style.pointerEvents = mode === "menu" ? "none" : "auto";
-    this.clearCars();
     this.input.clearTouch();
     this.sensorRays.setVisible(false);
     this.chase.reset();
@@ -236,11 +267,25 @@ export class Game {
     this.watchBrain = null;
     this.rivalBrain = null;
 
+    if (mode === "watch" || mode === "race") {
+      if (!this.hasTrainedChampion()) {
+        this.showTrainFirst();
+        return;
+      }
+    }
+
+    this.mode = mode;
+    this.hud.setMode(mode);
+    this.renderer.domElement.style.pointerEvents = mode === "menu" || mode === "train" ? "none" : "auto";
+    this.clearCars();
+
     if (mode === "menu" || mode === "edit") {
       this.fitOverview();
+      this.refreshReadyState();
       if (mode === "edit") {
         this.setEditCamera();
-        this.hud.showBanner("DRAG THE ORANGE BALLS");
+        this.renderer.domElement.style.pointerEvents = "auto";
+        this.hud.showBanner("DRAG ORANGE BALLS · OR RANDOM");
       }
       if (mode === "menu") {
         this.hud.setMode("menu");
@@ -252,18 +297,14 @@ export class Game {
     if (mode === "train") {
       this.beginTraining(this.trackDirty);
       this.sensorRays.setVisible(true);
-      this.hud.showBanner("SWARM LEARNING");
+      this.hud.showBanner("WATCH EVERY CAR LEARN");
       return;
     }
 
     if (mode === "watch") {
       this.refreshDriveTrack();
-      const brain = this.trainer.champion ?? this.trainer.loadChampionBrain();
-      if (!brain) {
-        this.beginTraining(true);
-        this.trainer.quickTrain();
-      }
-      this.watchBrain = (this.trainer.champion ?? this.trainer.loadChampionBrain())!.clone();
+      const brain = (this.trainer.champion ?? this.trainer.loadChampionBrain())!;
+      this.watchBrain = brain.clone();
       this.watchCar = new Car(0xe10600, DRIVE.maxSpeed, DRIVE.rotSpeed, DRIVE.accel);
       this.watchCar.reset(this.track, 0);
       this.carGroup.add(this.watchCar.mesh);
@@ -278,26 +319,22 @@ export class Game {
   private startRace() {
     this.trainer.setTrackHash(this.track.hashLayout());
     this.refreshDriveTrack();
-    let brain = this.trainer.champion ?? this.trainer.loadChampionBrain();
-    const trained = brain != null;
+    const brain = this.trainer.champion ?? this.trainer.loadChampionBrain();
     if (!brain) {
-      this.trainer.startForCurrentTrack(this.track.controlPoints, this.track.width, this.track.hashLayout(), true);
-      this.hud.showBanner("TRAINING RIVAL…", 1200);
-      this.trainer.quickTrain();
-      brain = this.trainer.champion;
+      this.showTrainFirst();
+      return;
     }
 
-    // Player gets a slight human feel; rival uses exact training drive params
     this.player = new Car(0xe10600, DRIVE.maxSpeed * 1.05, DRIVE.rotSpeed, DRIVE.accel);
     this.rival = new Car(0x00d2be, DRIVE.maxSpeed, DRIVE.rotSpeed, DRIVE.accel);
-    this.rivalBrain = brain ? brain.clone() : null;
+    this.rivalBrain = brain.clone();
     this.player.reset(this.track, -1);
     this.rival.reset(this.track, 1);
     this.raceLaps = 2;
     this.carGroup.add(this.player.mesh, this.rival.mesh);
     this.chase.reset();
     this.chase.update(this.player, 1);
-    this.hud.showBanner(trained ? "LIGHTS OUT" : "AUTO-TRAINED RIVAL");
+    this.hud.showBanner("LIGHTS OUT");
   }
 
   private clearCars() {
@@ -336,10 +373,13 @@ export class Game {
       const car = this.visualCars[i];
       if (!a) continue;
       car.position.set(a.x, 0.35, a.z);
+      // Never draw a car past the wall face
+      this.track.resolveWall(car.position);
       car.yaw = a.yaw;
       car.speed = a.speed;
       car.alive = a.alive;
       car.setGhost(!a.alive);
+      car.mesh.visible = true;
       const isLeader = i === leader && a.alive;
       car.mesh.scale.setScalar(isLeader ? 1.35 + Math.sin(this.leaderPulse) * 0.06 : 1.05);
       car.syncMesh();
@@ -403,26 +443,28 @@ export class Game {
   };
 
   private fitOverviewSoft() {
-    const r = 105;
-    const t = this.anim * 0.08;
+    // High wide orbit so every simulation car stays in frame
+    const r = 118;
+    const t = this.anim * 0.06;
     this.chase.camera.position.set(
-      this.overviewCenter.x + Math.cos(t) * r * 0.5,
-      88,
-      this.overviewCenter.z + Math.sin(t) * r * 0.5,
+      this.overviewCenter.x + Math.cos(t) * r * 0.42,
+      72,
+      this.overviewCenter.z + Math.sin(t) * r * 0.42,
     );
     this.chase.camera.lookAt(this.overviewCenter);
   }
 
   private updateTraining() {
-    // Visible swarm: every car drives in real-time (sped up a bit)
-    // 3 physics ticks/frame — fast enough to learn, slow enough to not look like spinning
+    // Full swarm visible from overview — every simulation at once
     const result = this.trainer.liveStep(3);
     this.syncVisualFromFast();
 
     if (result.justLapped) {
-      this.hud.showBanner(`LAP COMPLETE · GEN ${result.generation}`, 1600);
+      this.refreshReadyState();
+      this.hud.showBanner(`LAP DONE · RACE UNLOCKED`, 2200);
     } else if (result.generationDone) {
-      this.hud.showBanner(`GEN ${result.generation} · CRASH LESSONS KEPT`, 900);
+      this.refreshReadyState();
+      this.hud.showBanner(`GEN ${result.generation} · KEEP WATCHING`, 900);
     }
   }
 
