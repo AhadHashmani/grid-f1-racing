@@ -137,26 +137,35 @@ export function driveWithFastBrain(
     out[2] = out[2] * (1 - assist) + pBrake * assist;
   }
 
-  car.applyAnalog(out[0], out[1], out[2], dt);
-  if (front < DRIVE.frontSlow) {
-    car.speed = Math.min(car.speed, DRIVE.frontMin + front * DRIVE.frontScale);
-  }
-
-  // Post-move wall clamp so champion never phases through barriers
-  if (fastTrack) {
-    const after = fastTrack.resolveWall(car.position.x, car.position.z, progress);
-    car.position.x = after.x;
-    car.position.z = after.z;
-    car.lastProgress = after.progress;
-    car.syncMesh();
-    if (after.hit) {
+  // Sub-step analog move + wall clamp (same anti-tunnel idea as training)
+  const moveDist = Math.abs(car.speed) * dt + DRIVE.accel * dt * dt;
+  const subSteps = Math.max(1, Math.min(6, Math.ceil(moveDist / 0.55)));
+  const sdt = dt / subSteps;
+  for (let s = 0; s < subSteps; s++) {
+    car.applyAnalog(out[0], out[1], out[2], sdt);
+    if (front < DRIVE.frontSlow) {
+      car.speed = Math.min(car.speed, DRIVE.frontMin + front * DRIVE.frontScale);
+    }
+    if (fastTrack) {
+      const after = fastTrack.resolveWall(car.position.x, car.position.z, progress);
+      car.position.x = after.x;
+      car.position.z = after.z;
+      progress = after.progress;
+      car.lastProgress = after.progress;
+      car.syncMesh();
+      if (after.hit) {
+        car.speed = 0;
+        car.alive = false;
+        car.setGhost(true);
+        return;
+      }
+    } else if (track.resolveWall(car.position)) {
+      car.speed = 0;
+      car.syncMesh();
       car.alive = false;
       car.setGhost(true);
+      return;
     }
-  } else if (track.resolveWall(car.position)) {
-    car.syncMesh();
-    car.alive = false;
-    car.setGhost(true);
   }
 }
 

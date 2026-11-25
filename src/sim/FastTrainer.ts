@@ -258,20 +258,27 @@ export class FastTrainer {
     const steerFactor =
       DRIVE.steerBase + DRIVE.steerSpeed * Math.min(1, Math.abs(a.speed) / maxSpeed);
     a.yaw += steer * DRIVE.rotSpeed * steerFactor * dt;
-    a.x += Math.sin(a.yaw) * a.speed * dt;
-    a.z += Math.cos(a.yaw) * a.speed * dt;
     a.framesAlive += 1;
 
-    // Snap to wall face — never allow phasing through barriers
-    const hit = this.track.resolveWall(a.x, a.z, a.progress);
-    a.x = hit.x;
-    a.z = hit.z;
-    if (hit.hit) {
-      a.alive = false;
-      a.crashed = true;
-      a.brain.learnFromCrash(this.input, a.lastSteer, hit.progress, hit.lateral);
-      this.score(a, hit.progress);
-      return;
+    // Sub-step translation so high-speed cars can't tunnel past the wall face
+    const moveDist = Math.abs(a.speed) * dt;
+    const subSteps = Math.max(1, Math.min(6, Math.ceil(moveDist / 0.55)));
+    const sdt = dt / subSteps;
+    for (let s = 0; s < subSteps; s++) {
+      a.x += Math.sin(a.yaw) * a.speed * sdt;
+      a.z += Math.cos(a.yaw) * a.speed * sdt;
+      const hit = this.track.resolveWall(a.x, a.z, a.progress);
+      a.x = hit.x;
+      a.z = hit.z;
+      if (hit.hit) {
+        a.speed = 0;
+        a.alive = false;
+        a.crashed = true;
+        a.brain.learnFromCrash(this.input, a.lastSteer, hit.progress, hit.lateral);
+        this.score(a, hit.progress);
+        return;
+      }
+      a.progress = hit.progress;
     }
     const proj = this.track.project(a.x, a.z, a.progress);
 
