@@ -175,12 +175,19 @@ export class Game {
         this.setMode("menu");
         break;
       case "watch-champ":
+        if (!this.hasTrainedChampion()) {
+          this.showTrainFirst();
+          break;
+        }
         this.setMode("watch");
         break;
       case "reset-track":
         this.editor.resetToDefault(DEFAULT_CONTROL_POINTS);
         this.checkpoints = this.track.getCheckpointProgresses();
         this.trackDirty = true;
+        this.trainer.setTrackHash(this.track.hashLayout());
+        this.trainer.champion = null;
+        this.refreshReadyState();
         this.fitOverview();
         this.setEditCamera();
         this.hud.showBanner("TRACK RESET");
@@ -190,7 +197,10 @@ export class Game {
         this.editor.resetToDefault(pts);
         this.checkpoints = this.track.getCheckpointProgresses();
         this.trackDirty = true;
+        this.trainer.setTrackHash(this.track.hashLayout());
+        this.trainer.champion = null;
         this.refreshDriveTrack();
+        this.refreshReadyState();
         this.fitOverview();
         this.setEditCamera();
         this.hud.showBanner(`RANDOM · ${pts.length} NODES`);
@@ -368,20 +378,27 @@ export class Game {
       return;
     }
 
+    const ft = this.trainer.fast?.track ?? this.driveTrack;
     for (let i = 0; i < this.visualCars.length; i++) {
       const a = agents[i];
       const car = this.visualCars[i];
       if (!a) continue;
-      car.position.set(a.x, 0.35, a.z);
-      // Never draw a car past the wall face
-      this.track.resolveWall(car.position);
+      // Draw from the same clamped pose the sim uses — never past the wall face
+      if (ft) {
+        const pose = ft.resolveWall(a.x, a.z, a.progress);
+        car.position.set(pose.x, 0.35, pose.z);
+      } else {
+        car.position.set(a.x, 0.35, a.z);
+        this.track.resolveWall(car.position, a.progress);
+      }
       car.yaw = a.yaw;
       car.speed = a.speed;
       car.alive = a.alive;
       car.setGhost(!a.alive);
       car.mesh.visible = true;
       const isLeader = i === leader && a.alive;
-      car.mesh.scale.setScalar(isLeader ? 1.35 + Math.sin(this.leaderPulse) * 0.06 : 1.05);
+      // Mild leader pop only — large scale made wings pierce barriers
+      car.mesh.scale.setScalar(isLeader ? 1.12 + Math.sin(this.leaderPulse) * 0.03 : 1);
       car.syncMesh();
     }
 
@@ -483,12 +500,12 @@ export class Game {
 
     const controls = this.input.getRacingControls();
     // Sub-step player motion so race mode can't tunnel through barriers
-    const moveGuess = Math.abs(this.player.speed) * dt + 2;
-    const subs = Math.max(1, Math.min(6, Math.ceil(moveGuess / 0.55)));
+    const moveGuess = Math.abs(this.player.speed) * dt + DRIVE.accel * dt * dt;
+    const subs = Math.max(1, Math.min(10, Math.ceil(moveGuess / DRIVE.wallStep)));
     const sdt = dt / subs;
     for (let s = 0; s < subs; s++) {
       this.player.applyControls(controls, sdt);
-      if (this.track.resolveWall(this.player.position)) {
+      if (this.track.resolveWall(this.player.position, this.player.lastProgress)) {
         this.player.speed = 0;
         this.player.syncMesh();
         this.player.alive = false;

@@ -338,11 +338,11 @@ export class Track {
     );
   }
 
-  /** Solid vertical wall slab sitting just outside the asphalt edge. */
+  /** Solid vertical wall slab flush with the asphalt edge (matches wallFace). */
   private buildWallBody(side: number, half: number): THREE.Mesh {
     const n = this.samples.length;
-    const inner = half + 0.02;
-    const outer = half + 0.7;
+    const inner = half;
+    const outer = half + 0.85;
     const positions: number[] = [];
     const indices: number[] = [];
     for (let i = 0; i < n; i++) {
@@ -378,8 +378,8 @@ export class Track {
   private buildWallTopDeck(side: number, half: number): THREE.Mesh {
     const n = this.samples.length;
     const y = 1.42;
-    const inner = half + 0.02;
-    const outer = half + 0.72;
+    const inner = half;
+    const outer = half + 0.88;
     const positions: number[] = [];
     const indices: number[] = [];
     for (let i = 0; i < n; i++) {
@@ -433,14 +433,28 @@ export class Track {
     );
   }
 
-  /** Returns signed progress 0..1 and nearest sample index. */
-  project(position: THREE.Vector3): { progress: number; index: number; lateral: number; onTrack: boolean } {
+  /**
+   * Returns signed progress 0..1 and nearest sample index.
+   * preferProgress keeps folded / custom maps from snapping to a parallel ribbon.
+   */
+  project(
+    position: THREE.Vector3,
+    preferProgress?: number,
+  ): { progress: number; index: number; lateral: number; onTrack: boolean } {
     let best = 0;
-    let bestDist = Infinity;
+    let bestScore = Infinity;
+    const total = Math.max(this.totalLength, 1);
     for (let i = 0; i < this.samples.length; i++) {
-      const d = position.distanceToSquared(this.samples[i].position);
-      if (d < bestDist) {
-        bestDist = d;
+      const sample = this.samples[i];
+      let d = position.distanceToSquared(sample.position);
+      if (preferProgress != null) {
+        const p = sample.distance / total;
+        let dp = Math.abs(p - preferProgress);
+        if (dp > 0.5) dp = 1 - dp;
+        d += dp * dp * 140;
+      }
+      if (d < bestScore) {
+        bestScore = d;
         best = i;
       }
     }
@@ -448,7 +462,7 @@ export class Track {
     const toCar = position.clone().sub(sample.position);
     const lateral = toCar.dot(sample.normal);
     const onTrack = Math.abs(lateral) <= driveHalf(this.width);
-    const progress = sample.distance / Math.max(this.totalLength, 1);
+    const progress = sample.distance / total;
     return { progress, index: best, lateral, onTrack };
   }
 
@@ -456,8 +470,8 @@ export class Track {
    * Clamp a world position onto the inner wall face.
    * Mutates `position` XZ; returns true if it hit (caller should crash).
    */
-  resolveWall(position: THREE.Vector3): boolean {
-    const proj = this.project(position);
+  resolveWall(position: THREE.Vector3, preferProgress?: number): boolean {
+    const proj = this.project(position, preferProgress);
     const limit = driveHalf(this.width);
     if (Math.abs(proj.lateral) <= limit) return false;
     const sample = this.samples[proj.index];

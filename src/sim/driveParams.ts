@@ -20,10 +20,15 @@ export const DRIVE = {
   rayCount: 13,
   rayRange: 26,
   raySpread: Math.PI * 0.95,
-  /** Half car width — walls are impassable at asphaltEdge − this. */
-  carHalf: 0.95,
+  /**
+   * Half car width incl. front wing (~1.7 @ 1.05 scale).
+   * Walls are impassable at asphaltEdge − this — body never crosses the face.
+   */
+  carHalf: 1.05,
+  /** Max travel per collision sub-step — smaller = no tunneling. */
+  wallStep: 0.32,
   /** Ray steps — finer = walls read earlier/clearer for the NN. */
-  rayStep: 0.32,
+  rayStep: 0.28,
 } as const;
 
 /** Driveable half-width (asphalt edge minus car body). */

@@ -263,7 +263,7 @@ export class FastTrainer {
     const prev = a.progress;
     // Sub-step translation so high-speed cars can't tunnel past the wall face
     const moveDist = Math.abs(a.speed) * dt;
-    const subSteps = Math.max(1, Math.min(6, Math.ceil(moveDist / 0.55)));
+    const subSteps = Math.max(1, Math.min(10, Math.ceil(moveDist / DRIVE.wallStep)));
     const sdt = dt / subSteps;
     for (let s = 0; s < subSteps; s++) {
       a.x += Math.sin(a.yaw) * a.speed * sdt;

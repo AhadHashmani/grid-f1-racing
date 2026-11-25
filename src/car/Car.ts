@@ -140,16 +140,16 @@ export class Car {
 
   updateRaceProgress(track: Track, checkpoints: number[], frame: number, training = false) {
     // Walls are rigid — clamp first so the mesh never sits past the barrier
-    if (track.resolveWall(this.position)) {
+    if (track.resolveWall(this.position, this.lastProgress)) {
       this.syncMesh();
       this.alive = false;
       this.setGhost(true);
-      const { progress } = track.project(this.position);
+      const { progress } = track.project(this.position, this.lastProgress);
       this.updateScore(checkpoints.length, progress);
       return;
     }
 
-    const { progress, lateral } = track.project(this.position);
+    const { progress, lateral } = track.project(this.position, this.lastProgress);
     if (training && Math.abs(lateral) > track.width * 0.28) {
       this.speed *= 0.985;
     }

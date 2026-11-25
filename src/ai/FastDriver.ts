@@ -139,7 +139,7 @@ export function driveWithFastBrain(
 
   // Sub-step analog move + wall clamp (same anti-tunnel idea as training)
   const moveDist = Math.abs(car.speed) * dt + DRIVE.accel * dt * dt;
-  const subSteps = Math.max(1, Math.min(6, Math.ceil(moveDist / 0.55)));
+  const subSteps = Math.max(1, Math.min(10, Math.ceil(moveDist / DRIVE.wallStep)));
   const sdt = dt / subSteps;
   for (let s = 0; s < subSteps; s++) {
     car.applyAnalog(out[0], out[1], out[2], sdt);
@@ -159,7 +159,7 @@ export function driveWithFastBrain(
         car.setGhost(true);
         return;
       }
-    } else if (track.resolveWall(car.position)) {
+    } else if (track.resolveWall(car.position, car.lastProgress)) {
       car.speed = 0;
       car.syncMesh();
       car.alive = false;

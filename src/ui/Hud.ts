@@ -55,6 +55,11 @@ export class Hud {
     this.watchBtn.classList.toggle("locked", !ready);
     this.raceBtn.title = ready ? "Race the trained champion" : "Train the swarm first";
     this.watchBtn.title = ready ? "Watch the champion alone" : "Train the swarm first";
+    const trainWatch = this.root.querySelector("#btn-train-watch") as HTMLButtonElement | null;
+    if (trainWatch) {
+      trainWatch.classList.toggle("locked", !ready);
+      trainWatch.title = ready ? "Chase the champion" : "Needs a finished lap first";
+    }
     this.updateStepHint();
   }
 
@@ -290,21 +295,26 @@ export class Hud {
         <li>Next: <strong>Train</strong> to watch every car</li>
       `;
     } else if (mode === "train") {
-      this.helpTitle.textContent = "Watch the swarm";
+      this.helpTitle.textContent = "All simulations";
       help.innerHTML = `
-        <li>Every colored car is a different brain — all visible</li>
-        <li>Crashes become ghosts · survivors keep learning</li>
-        <li>When one finishes a lap, <strong>Race</strong> unlocks</li>
+        <li>Camera shows <strong>every</strong> car training at once</li>
+        <li>Ghosts = crashed · bright cars = still learning</li>
+        <li>Finish a lap → <strong>Race</strong> unlocks</li>
       `;
       if (!this.root.querySelector(".train-actions")) {
         const actions = document.createElement("div");
         actions.className = "train-actions";
         actions.innerHTML = `
           <button type="button" class="action-btn" data-action="retrain-fresh">Restart Swarm</button>
-          <button type="button" class="action-btn primary" data-action="watch-champ">Watch Champ</button>
+          <button type="button" class="action-btn primary" data-action="watch-champ" id="btn-train-watch">Watch Champ</button>
         `;
         this.helpEl.appendChild(actions);
         this.bindButtons();
+        const watchBtn = actions.querySelector("#btn-train-watch") as HTMLButtonElement | null;
+        if (watchBtn) {
+          watchBtn.classList.toggle("locked", !this.trainedReady);
+          watchBtn.title = this.trainedReady ? "Chase the champion" : "Needs a finished lap first";
+        }
       }
     } else if (mode === "race") {
       this.helpTitle.textContent = "Race";
