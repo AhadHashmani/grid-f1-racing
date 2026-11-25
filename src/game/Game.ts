@@ -77,6 +77,9 @@ export class Game {
       this.fitOverview();
       if (this.mode === "edit") this.setEditCamera();
     });
+    this.editor.setOnSnap(() => {
+      this.hud.showBanner("WALLS SNAPPED · CLEAR LAP");
+    });
     this.trainer.setTrackHash(this.track.hashLayout());
     this.checkpoints = this.track.getCheckpointProgresses();
 

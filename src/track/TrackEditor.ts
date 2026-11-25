@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import { TRACK_WIDTH } from "./defaultTrack";
+import { sanitizeControlPoints, snapDraggedPoint } from "./layoutSanitize";
 import type { ControlPoint, Track } from "./Track";
 
 export class TrackEditor {
@@ -8,10 +10,12 @@ export class TrackEditor {
   private raycaster = new THREE.Raycaster();
   private pointer = new THREE.Vector2();
   private dragging: THREE.Mesh | null = null;
+  private dragStart: ControlPoint | null = null;
   private hovered: THREE.Mesh | null = null;
   private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private hit = new THREE.Vector3();
   private onChange: (() => void) | null = null;
+  private onSnap: (() => void) | null = null;
   private scene: THREE.Scene;
   private camera: THREE.Camera;
   private track: Track;
@@ -42,6 +46,10 @@ export class TrackEditor {
 
   setOnChange(cb: () => void) {
     this.onChange = cb;
+  }
+
+  setOnSnap(cb: () => void) {
+    this.onSnap = cb;
   }
 
   rebuildHandles() {
@@ -159,6 +167,9 @@ export class TrackEditor {
     const handle = this.pickHandle();
     if (handle) {
       this.dragging = handle;
+      const idx = handle.userData.index as number;
+      const p = this.track.controlPoints[idx];
+      this.dragStart = p ? { x: p.x, z: p.z } : { x: handle.position.x, z: handle.position.z };
       this.dom.style.cursor = "grabbing";
       try {
         this.dom.setPointerCapture(event.pointerId);
@@ -181,13 +192,22 @@ export class TrackEditor {
     this.raycaster.setFromCamera(this.pointer, this.camera);
     if (this.raycaster.ray.intersectPlane(this.plane, this.hit)) {
       const idx = this.dragging.userData.index as number;
-      this.dragging.position.x = this.hit.x;
-      this.dragging.position.z = this.hit.z;
-      const ring = this.rings[idx];
-      if (ring) ring.position.set(this.hit.x, 0.12, this.hit.z);
-
       const points: ControlPoint[] = this.track.controlPoints.map((p) => ({ ...p }));
-      points[idx] = { x: this.hit.x, z: this.hit.z };
+      const prev = this.dragStart ?? points[idx];
+      // Snap so walls never fold across the asphalt while dragging
+      const snapped = snapDraggedPoint(
+        points,
+        idx,
+        { x: this.hit.x, z: this.hit.z },
+        prev,
+        this.track.width || TRACK_WIDTH,
+      );
+      points[idx] = snapped;
+      this.dragging.position.x = snapped.x;
+      this.dragging.position.z = snapped.z;
+      const ring = this.rings[idx];
+      if (ring) ring.position.set(snapped.x, 0.12, snapped.z);
+
       this.track.setControlPoints(points);
       this.syncHandlePositions();
       this.onChange?.();
@@ -201,7 +221,17 @@ export class TrackEditor {
     } catch {
       /* ignore */
     }
+    // Final sanitize pass in case a sharp Catmull pinch slipped through
+    const before = this.track.controlPoints;
+    const cleaned = sanitizeControlPoints(before, this.track.width || TRACK_WIDTH);
+    const changed = cleaned.some(
+      (p, i) => Math.hypot(p.x - before[i].x, p.z - before[i].z) > 0.35,
+    );
+    this.track.setControlPoints(cleaned);
+    this.onChange?.();
+    if (changed) this.onSnap?.();
     this.dragging = null;
+    this.dragStart = null;
     if (this.enabled) this.dom.style.cursor = "grab";
     this.rebuildHandles();
   };
@@ -220,7 +250,8 @@ export class TrackEditor {
   }
 
   resetToDefault(points: ControlPoint[]) {
-    this.track.setControlPoints(points);
+    const cleaned = sanitizeControlPoints(points, this.track.width || TRACK_WIDTH);
+    this.track.setControlPoints(cleaned);
     this.rebuildHandles();
     this.onChange?.();
   }

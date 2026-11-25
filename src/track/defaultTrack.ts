@@ -1,4 +1,5 @@
 import type { ControlPoint } from "./Track";
+import { isCleanLayout, sanitizeControlPoints } from "./layoutSanitize";
 
 /** Default F1-inspired closed circuit control points (XZ plane). */
 export const DEFAULT_CONTROL_POINTS: ControlPoint[] = [
@@ -49,7 +50,7 @@ const RANDOM_BASES: ControlPoint[][] = [
 
 /**
  * Procedural closed circuit that is obviously not the default oval.
- * Starts from an irregular base, then jitters nodes hard.
+ * Jitter is milder, then sanitize/retry so walls never cross the asphalt.
  */
 export function generateRandomTrack(seed = Date.now()): ControlPoint[] {
   let s = seed >>> 0;
@@ -57,18 +58,31 @@ export function generateRandomTrack(seed = Date.now()): ControlPoint[] {
     s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
     return s / 0xffffffff;
   };
-  const base = RANDOM_BASES[Math.floor(rnd() * RANDOM_BASES.length)].map((p) => ({ ...p }));
-  const rot = (rnd() - 0.5) * 1.2;
-  const cos = Math.cos(rot);
-  const sin = Math.sin(rot);
-  const scale = 0.85 + rnd() * 0.45;
-  return base.map((p, i) => {
-    // Occasional hard yank so hairpins stay hairpins
-    const yank = i % 3 === 0 ? 18 + rnd() * 16 : 8 + rnd() * 12;
-    const jx = (rnd() - 0.5) * yank;
-    const jz = (rnd() - 0.5) * yank;
-    const x = (p.x + jx) * scale;
-    const z = (p.z + jz) * scale;
-    return { x: x * cos - z * sin, z: x * sin + z * cos };
-  });
+
+  for (let attempt = 0; attempt < 14; attempt++) {
+    const base = RANDOM_BASES[Math.floor(rnd() * RANDOM_BASES.length)].map((p) => ({ ...p }));
+    const rot = (rnd() - 0.5) * 0.9;
+    const cos = Math.cos(rot);
+    const sin = Math.sin(rot);
+    const scale = 0.9 + rnd() * 0.35;
+    // Milder yank on later attempts so we converge on a clean loop
+    const yankScale = attempt < 4 ? 1 : Math.max(0.25, 1 - attempt * 0.08);
+    const raw = base.map((p, i) => {
+      const yank = (i % 3 === 0 ? 10 + rnd() * 10 : 5 + rnd() * 8) * yankScale;
+      const jx = (rnd() - 0.5) * yank;
+      const jz = (rnd() - 0.5) * yank;
+      const x = (p.x + jx) * scale;
+      const z = (p.z + jz) * scale;
+      return { x: x * cos - z * sin, z: x * sin + z * cos };
+    });
+    const cleaned = sanitizeControlPoints(raw, TRACK_WIDTH);
+    if (isCleanLayout(cleaned, TRACK_WIDTH)) return cleaned;
+  }
+
+  // Guaranteed-clean fallback: lightly jitter a known-good base then sanitize
+  const safe = RANDOM_BASES[0].map((p) => ({
+    x: p.x + (rnd() - 0.5) * 4,
+    z: p.z + (rnd() - 0.5) * 4,
+  }));
+  return sanitizeControlPoints(safe, TRACK_WIDTH);
 }
