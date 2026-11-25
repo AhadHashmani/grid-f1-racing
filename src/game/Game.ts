@@ -140,7 +140,8 @@ export class Game {
     cx /= this.track.controlPoints.length;
     cz /= this.track.controlPoints.length;
     this.overviewCenter.set(cx, 0, cz);
-    this.chase.setOrbitOverview(this.overviewCenter, 100, 82);
+    // Lower / closer so solid barrier decks read in 3D (not a flat top-down sketch)
+    this.chase.setOrbitOverview(this.overviewCenter, 88, 52);
   }
 
   private handleAction(action: string) {

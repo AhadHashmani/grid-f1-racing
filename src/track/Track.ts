@@ -208,32 +208,39 @@ export class Track {
     kerbWhite.instanceMatrix.needsUpdate = true;
     this.meshGroup.add(kerbRed, kerbWhite);
 
-    // Continuous solid walls — no gaps for cars to visually phase through
-    this.meshGroup.add(this.buildWallRibbon(1, half));
-    this.meshGroup.add(this.buildWallRibbon(-1, half));
+    // Runoff gravel outside the walls — makes the “out of bounds” zone obvious
+    this.meshGroup.add(this.buildRunoffRibbon(1, half));
+    this.meshGroup.add(this.buildRunoffRibbon(-1, half));
 
-    // Posts every few samples for rigid “barrier” silhouette
-    const postStep = 4;
-    const postCount = Math.ceil(this.samples.length / postStep) * 2;
-    const posts = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(0.22, 1.7, 0.22),
-      new THREE.MeshLambertMaterial({ color: 0x6a717c }),
-      postCount,
+    // Dense overlapping barrier blocks — readable as a solid wall from top-down
+    const segLen = Math.max(1.1, this.totalLength / Math.max(this.samples.length, 1) * 1.25);
+    const wallBlocks = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.85, 1.55, segLen),
+      new THREE.MeshLambertMaterial({ color: 0xa8b0bc }),
+      this.samples.length * 2,
     );
-    let postI = 0;
+    let wallI = 0;
     for (let side = -1; side <= 1; side += 2) {
-      for (let i = 0; i < this.samples.length; i += postStep) {
+      for (let i = 0; i < this.samples.length; i++) {
         const s = this.samples[i];
-        const pos = s.position.clone().addScaledVector(s.normal, side * (half + 0.28));
-        dummy.position.copy(pos).setY(0.85);
-        dummy.rotation.set(0, 0, 0);
+        const pos = s.position.clone().addScaledVector(s.normal, side * (half + 0.42));
+        dummy.position.copy(pos).setY(0.78);
+        dummy.lookAt(pos.clone().add(s.tangent));
         dummy.updateMatrix();
-        posts.setMatrixAt(postI++, dummy.matrix);
+        wallBlocks.setMatrixAt(wallI++, dummy.matrix);
       }
     }
-    posts.count = postI;
-    posts.instanceMatrix.needsUpdate = true;
-    this.meshGroup.add(posts);
+    wallBlocks.count = wallI;
+    wallBlocks.instanceMatrix.needsUpdate = true;
+    this.meshGroup.add(wallBlocks);
+
+    // Wide top deck (Armco-style) — thick band visible from overview camera
+    this.meshGroup.add(this.buildWallTopDeck(1, half));
+    this.meshGroup.add(this.buildWallTopDeck(-1, half));
+
+    // Accent stripe on the inner wall face so bots’ “wall” reads clearly
+    this.meshGroup.add(this.buildWallFaceStripe(1, half));
+    this.meshGroup.add(this.buildWallFaceStripe(-1, half));
 
     // Finish / start stripe
     const start = this.samples[0];
@@ -297,49 +304,94 @@ export class Track {
     return `${parts.join("|")}|w${this.width.toFixed(1)}`;
   }
 
-  /** Continuous vertical barrier ribbon at the asphalt edge. */
-  private buildWallRibbon(side: number, half: number): THREE.Mesh {
+  /** Dark gravel band outside the wall so off-track is visually distinct. */
+  private buildRunoffRibbon(side: number, half: number): THREE.Mesh {
     const n = this.samples.length;
-    const wallH = 1.45;
-    const thick = 0.42;
+    const inner = half + 0.05;
+    const outer = half + 3.2;
     const positions: number[] = [];
     const indices: number[] = [];
-    // Quad strip: inner face (asphalt) + outer face
     for (let i = 0; i < n; i++) {
       const s = this.samples[i];
-      const ix = s.position.x + s.normal.x * side * half;
-      const iz = s.position.z + s.normal.z * side * half;
-      const ox = s.position.x + s.normal.x * side * (half + thick);
-      const oz = s.position.z + s.normal.z * side * (half + thick);
-      // 4 verts per sample: inner-bottom, inner-top, outer-bottom, outer-top
-      positions.push(ix, 0, iz, ix, wallH, iz, ox, 0, oz, ox, wallH, oz);
+      const ix = s.position.x + s.normal.x * side * inner;
+      const iz = s.position.z + s.normal.z * side * inner;
+      const ox = s.position.x + s.normal.x * side * outer;
+      const oz = s.position.z + s.normal.z * side * outer;
+      positions.push(ix, 0.01, iz, ox, 0.01, oz);
     }
     for (let i = 0; i < n; i++) {
-      const a = i * 4;
-      const b = ((i + 1) % n) * 4;
-      // Inner face (visible from track)
-      if (side > 0) {
-        indices.push(a, b, a + 1, a + 1, b, b + 1);
-        indices.push(a + 2, a + 3, b + 2, a + 3, b + 3, b + 2);
-      } else {
-        indices.push(a, a + 1, b, a + 1, b + 1, b);
-        indices.push(a + 2, b + 2, a + 3, a + 3, b + 2, b + 3);
-      }
-      // Top cap
-      indices.push(a + 1, b + 1, a + 3, a + 3, b + 1, b + 3);
+      const a = i * 2;
+      const b = ((i + 1) % n) * 2;
+      if (side > 0) indices.push(a, b, a + 1, a + 1, b, b + 1);
+      else indices.push(a, a + 1, b, a + 1, b + 1, b);
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
     geo.setIndex(indices);
     geo.computeVertexNormals();
-    const mat = new THREE.MeshLambertMaterial({
-      color: 0xc5ccd6,
-      side: THREE.DoubleSide,
-    });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.castShadow = false;
-    mesh.receiveShadow = true;
-    return mesh;
+    return new THREE.Mesh(
+      geo,
+      new THREE.MeshLambertMaterial({ color: 0x2a2e26, side: THREE.DoubleSide }),
+    );
+  }
+
+  /** Wide horizontal top of the barrier — unmistakable from the overview cam. */
+  private buildWallTopDeck(side: number, half: number): THREE.Mesh {
+    const n = this.samples.length;
+    const y = 1.52;
+    const inner = half + 0.05;
+    const outer = half + 0.95;
+    const positions: number[] = [];
+    const indices: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const s = this.samples[i];
+      const ix = s.position.x + s.normal.x * side * inner;
+      const iz = s.position.z + s.normal.z * side * inner;
+      const ox = s.position.x + s.normal.x * side * outer;
+      const oz = s.position.z + s.normal.z * side * outer;
+      positions.push(ix, y, iz, ox, y, oz);
+    }
+    for (let i = 0; i < n; i++) {
+      const a = i * 2;
+      const b = ((i + 1) % n) * 2;
+      if (side > 0) indices.push(a, b, a + 1, a + 1, b, b + 1);
+      else indices.push(a, a + 1, b, a + 1, b + 1, b);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    return new THREE.Mesh(
+      geo,
+      new THREE.MeshLambertMaterial({ color: 0xd7dde6, side: THREE.DoubleSide }),
+    );
+  }
+
+  /** Bright inner face stripe at asphalt edge — reads as the hard wall line. */
+  private buildWallFaceStripe(side: number, half: number): THREE.Mesh {
+    const n = this.samples.length;
+    const positions: number[] = [];
+    const indices: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const s = this.samples[i];
+      const x = s.position.x + s.normal.x * side * half;
+      const z = s.position.z + s.normal.z * side * half;
+      positions.push(x, 0.05, z, x, 1.5, z);
+    }
+    for (let i = 0; i < n; i++) {
+      const a = i * 2;
+      const b = ((i + 1) % n) * 2;
+      if (side > 0) indices.push(a, b, a + 1, a + 1, b, b + 1);
+      else indices.push(a, a + 1, b, a + 1, b + 1, b);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    return new THREE.Mesh(
+      geo,
+      new THREE.MeshLambertMaterial({ color: 0xff8700, side: THREE.DoubleSide }),
+    );
   }
 
   /** Returns signed progress 0..1 and nearest sample index. */
