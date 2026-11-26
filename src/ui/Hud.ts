@@ -228,11 +228,13 @@ export class Hud {
       <div class="overlay visible" id="overlay">
         <div class="overlay-card">
           <h1>GR<span>ID</span></h1>
-          <p class="overlay-steps">
-            <strong>1.</strong> Build a track &nbsp;→&nbsp;
-            <strong>2.</strong> Watch every car train &nbsp;→&nbsp;
-            <strong>3.</strong> Race the champion
-          </p>
+          <div class="overlay-steps" role="navigation" aria-label="Play steps">
+            <button type="button" class="step-link" data-action="start-edit"><strong>1.</strong> Build a track</button>
+            <span class="step-arrow" aria-hidden="true">→</span>
+            <button type="button" class="step-link" data-action="start-train"><strong>2.</strong> Watch every car train</button>
+            <span class="step-arrow" aria-hidden="true">→</span>
+            <button type="button" class="step-link" data-action="start-race"><strong>3.</strong> Race the champion</button>
+          </div>
           <p>
             Training shows every car at once. Race stays locked until one finishes a full lap.
           </p>

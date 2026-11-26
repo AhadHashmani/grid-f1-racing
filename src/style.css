@@ -507,11 +507,40 @@ canvas {
 }
 
 .overlay-steps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem 0.45rem;
   font-family: var(--font-display);
-  font-size: 0.78rem !important;
+  font-size: 0.78rem;
   letter-spacing: 0.06em;
-  color: var(--white) !important;
-  margin-bottom: 0.6rem;
+  color: var(--white);
+  margin-bottom: 0.75rem;
+}
+
+.overlay-steps .step-link {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  padding: 0.35rem 0.45rem;
+  border-radius: 2px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.overlay-steps .step-link:hover,
+.overlay-steps .step-link:focus-visible {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.overlay-steps .step-arrow {
+  color: var(--muted);
+  pointer-events: none;
 }
 
 .overlay-card p {
@@ -526,6 +555,13 @@ canvas {
   flex-wrap: wrap;
   gap: 0.6rem;
   justify-content: center;
+}
+
+.overlay-actions .action-btn {
+  min-height: 2.75rem;
+  min-width: 9.5rem;
+  padding: 0.85rem 1.15rem;
+  font-size: 0.72rem;
 }
 
 .action-btn.primary {
