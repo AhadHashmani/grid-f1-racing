@@ -228,21 +228,12 @@ export class Hud {
       <div class="overlay visible" id="overlay">
         <div class="overlay-card">
           <h1>GR<span>ID</span></h1>
-          <div class="overlay-steps" role="navigation" aria-label="Play steps">
-            <button type="button" class="step-link" data-action="start-edit"><strong>1.</strong> Build a track</button>
-            <span class="step-arrow" aria-hidden="true">→</span>
-            <button type="button" class="step-link" data-action="start-train"><strong>2.</strong> Watch every car train</button>
-            <span class="step-arrow" aria-hidden="true">→</span>
-            <button type="button" class="step-link" data-action="start-race"><strong>3.</strong> Race the champion</button>
-          </div>
-          <p>
-            Training shows every car at once. Race stays locked until one finishes a full lap.
-          </p>
-          <div class="overlay-actions">
-            <button type="button" class="action-btn primary" data-action="start-edit">1 · Build Track</button>
+          <div class="overlay-actions overlay-actions-stack">
+            <button type="button" class="action-btn primary action-btn-xl" data-action="start-edit">1 · Build Track</button>
             <button type="button" class="action-btn" data-action="start-train">2 · Watch All Sims</button>
             <button type="button" class="action-btn ghost" data-action="start-race">3 · Race (needs train)</button>
           </div>
+          <p class="overlay-note">Watch every car train. Race unlocks after a finished lap.</p>
         </div>
       </div>
     `;

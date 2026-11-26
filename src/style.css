@@ -499,48 +499,25 @@ canvas {
   font-family: var(--font-display);
   font-size: clamp(1.8rem, 5vw, 2.6rem);
   letter-spacing: 0.14em;
-  margin-bottom: 0.5rem;
+  margin-bottom: 1rem;
 }
 
 .overlay-card h1 span {
   color: var(--red);
 }
 
-.overlay-steps {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem 0.45rem;
-  font-family: var(--font-display);
-  font-size: 0.78rem;
-  letter-spacing: 0.06em;
-  color: var(--white);
-  margin-bottom: 0.75rem;
+.overlay-lead {
+  color: var(--white) !important;
+  font-size: 1.05rem !important;
+  margin-bottom: 1.1rem !important;
+  line-height: 1.45;
 }
 
-.overlay-steps .step-link {
-  appearance: none;
-  border: 1px solid transparent;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  letter-spacing: inherit;
-  padding: 0.35rem 0.45rem;
-  border-radius: 2px;
-  cursor: pointer;
-  pointer-events: auto;
-}
-
-.overlay-steps .step-link:hover,
-.overlay-steps .step-link:focus-visible {
-  border-color: rgba(255, 255, 255, 0.28);
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.overlay-steps .step-arrow {
+.overlay-note {
   color: var(--muted);
-  pointer-events: none;
+  font-size: 0.92rem !important;
+  margin: 1rem 0 0 !important;
+  line-height: 1.35;
 }
 
 .overlay-card p {
@@ -557,11 +534,24 @@ canvas {
   justify-content: center;
 }
 
+.overlay-actions-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.55rem;
+}
+
 .overlay-actions .action-btn {
   min-height: 2.75rem;
   min-width: 9.5rem;
   padding: 0.85rem 1.15rem;
   font-size: 0.72rem;
+}
+
+.overlay-actions .action-btn-xl {
+  min-height: 3.4rem;
+  font-size: 0.85rem;
+  letter-spacing: 0.14em;
+  box-shadow: 0 0 0 1px rgba(225, 6, 0, 0.35), 0 12px 28px rgba(225, 6, 0, 0.22);
 }
 
 .action-btn.primary {
