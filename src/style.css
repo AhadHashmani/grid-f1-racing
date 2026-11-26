@@ -80,17 +80,29 @@ canvas {
 }
 
 #ui .top-bar,
+#ui .top-controls,
 #ui button,
 #ui .mode-bar,
+#ui .flow-steps,
 #ui .overlay,
 #ui .overlay-card,
 #ui .overlay-actions,
 #ui .help,
 #ui .hud,
 #ui .edit-coach,
+#ui .edit-coach-actions,
 #ui .train-actions,
-#ui .touch-pad {
+#ui .touch-pad,
+#ui .learn-meter,
+#ui .action-btn {
   pointer-events: auto;
+}
+
+#ui button,
+#ui .action-btn {
+  cursor: pointer;
+  position: relative;
+  z-index: 2;
 }
 
 .top-bar {

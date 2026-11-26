@@ -33,7 +33,6 @@ export class Hud {
     parent.appendChild(this.root);
     this.renderShell();
     this.root.addEventListener("click", this.onRootPointer, true);
-    this.root.addEventListener("pointerup", this.onRootPointer, true);
   }
 
   setHandlers(
@@ -72,21 +71,23 @@ export class Hud {
 
   private fireAction(action: string) {
     const now = performance.now();
-    if (now - this.lastFireAt < 280) return;
+    if (now - this.lastFireAt < 120) return;
     this.lastFireAt = now;
     this.onAction?.(action);
   }
 
   private fireMode(mode: GameMode) {
     const now = performance.now();
-    if (now - this.lastFireAt < 280) return;
+    if (now - this.lastFireAt < 120) return;
     this.lastFireAt = now;
     this.onMode?.(mode);
   }
 
+  /** Single delegated click path — avoids pointerup+click double-fire and dead buttons. */
   private onRootPointer = (event: Event) => {
+    if (event.type !== "click") return;
     const target = event.target as HTMLElement | null;
-    if (!target) return;
+    if (!target?.closest) return;
 
     const actionBtn = target.closest<HTMLElement>("[data-action]");
     if (actionBtn?.dataset.action) {
@@ -105,18 +106,7 @@ export class Hud {
   };
 
   private bindButtons() {
-    this.root.querySelectorAll<HTMLElement>("[data-action], [data-mode]").forEach((el) => {
-      if ((el as HTMLElement & { __gridBound?: boolean }).__gridBound) return;
-      (el as HTMLElement & { __gridBound?: boolean }).__gridBound = true;
-      el.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        const action = el.dataset.action;
-        const mode = el.dataset.mode;
-        if (action) this.fireAction(action);
-        else if (mode) this.fireMode(mode as GameMode);
-      });
-    });
+    // No-op kept for call sites after dynamic HTML inject; delegation handles clicks.
   }
 
   private renderShell() {
