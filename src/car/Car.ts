@@ -149,19 +149,21 @@ export class Car {
       return;
     }
 
-    const { progress, lateral } = track.project(this.position, this.lastProgress);
+    const guided = track.project(this.position, this.lastProgress);
+    const wrappedForward = track.crossedFinish(this.lastProgress, guided.progress);
+    const progress = guided.progress;
+    const lateral = guided.lateral;
     if (training && Math.abs(lateral) > track.width * 0.28) {
       this.speed *= 0.985;
     }
 
-    const wrappedForward = this.lastProgress > 0.88 && progress < 0.12;
     const forward = progress >= this.lastProgress - 0.004 || wrappedForward;
 
     if (forward && this.checkpointIndex < checkpoints.length) {
       const next = checkpoints[this.checkpointIndex];
       const crossed =
         (this.lastProgress < next && progress >= next) ||
-        (wrappedForward && next > 0.9);
+        (wrappedForward && next > 0.85);
       if (crossed) {
         this.checkpointIndex += 1;
         this.frameOfLastCp = frame;
@@ -176,13 +178,12 @@ export class Car {
       }
     }
 
-    if (this.checkpointIndex >= checkpoints.length) {
-      if (this.lastProgress > 0.8 && progress < 0.12) {
-        this.lapCount += 1;
-        this.checkpointIndex = 0;
-        this.frameOfLastCp = frame;
-        this.bestProgress = Math.max(this.bestProgress, 1);
-      }
+    const cleared = this.checkpointIndex >= Math.floor(checkpoints.length * 0.85);
+    if (wrappedForward && (cleared || this.checkpointIndex >= checkpoints.length || this.lastProgress > 0.9)) {
+      this.lapCount += 1;
+      this.checkpointIndex = 0;
+      this.frameOfLastCp = frame;
+      this.bestProgress = Math.max(this.bestProgress, 1);
     }
 
     this.lastProgress = progress;

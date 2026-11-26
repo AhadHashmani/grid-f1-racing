@@ -107,24 +107,25 @@ export class FastTrainer {
 
   /**
    * Pure-pursuit teacher: aim at a centerline point ahead.
-   * Shortens look-ahead in corners; optional magnet for dedicated coaches only.
+   * Labels are computed first; optional magnet only nudges pose after labeling
+   * so imitate() sees sensor→action pairs that match race physics.
    */
   private coachDrive(a: AgentState, out: Float32Array, magnet = true) {
     const front = this.input[Math.floor(RAYS / 2)];
     const lateral = this.input[RAYS + 1];
     const absLat = Math.abs(lateral);
 
-    // Soft magnet to centerline so edited hairpins don't spit the teacher out
-    if (magnet && absLat > 0.15) {
-      const pull = Math.min(0.55, absLat * 0.35);
-      const cen = this.track.sampleAtProgress(a.progress);
-      a.x += (cen.x - a.x) * pull * 0.2;
-      a.z += (cen.z - a.z) * pull * 0.2;
-    }
+    let look = Math.max(5.5, Math.min(20, 5.5 + a.speed * 0.5));
+    if (front < 0.5) look *= 0.42;
+    if (absLat > 0.35) look = Math.min(look, 6.5);
+    // Peek at curvature: if next sample turns hard, shorten look-ahead
+    const peek = this.track.sampleAtProgress(
+      a.progress + 12 / Math.max(this.track.totalLength, 1),
+    );
+    const here = this.track.sampleAtProgress(a.progress);
+    const turnDot = here.tx * peek.tx + here.tz * peek.tz;
+    if (turnDot < 0.82) look = Math.min(look, 8);
 
-    let look = Math.max(6, Math.min(18, 6 + a.speed * 0.45));
-    if (front < 0.5) look *= 0.45;
-    if (absLat > 0.4) look = Math.min(look, 7);
     const target = this.track.sampleAtProgress(a.progress + look / Math.max(this.track.totalLength, 1));
     const dx = target.x - a.x;
     const dz = target.z - a.z;
@@ -133,18 +134,21 @@ export class FastTrainer {
     while (err > Math.PI) err -= Math.PI * 2;
     while (err < -Math.PI) err += Math.PI * 2;
 
-    let steer = err * 1.5 - lateral * 0.9;
+    let steer = err * 1.65 - lateral * 1.05;
     if (steer > 1) steer = 1;
     if (steer < -1) steer = -1;
 
-    let brake = 0.05;
-    let throttle = 0.88;
-    if (front < 0.3) {
-      brake = 0.8;
-      throttle = 0.25;
-    } else if (front < 0.45 || Math.abs(err) > 0.65) {
-      brake = 0.3;
-      throttle = 0.5;
+    let brake = 0.04;
+    let throttle = 0.9;
+    if (front < 0.28) {
+      brake = 0.88;
+      throttle = 0.18;
+    } else if (front < 0.42 || Math.abs(err) > 0.6 || turnDot < 0.75) {
+      brake = 0.35;
+      throttle = 0.48;
+    } else if (front < 0.55 || Math.abs(err) > 0.35) {
+      brake = 0.18;
+      throttle = 0.7;
     }
     if (a.speed < 3.5) {
       throttle = 1;
@@ -154,6 +158,14 @@ export class FastTrainer {
     out[0] = throttle;
     out[1] = steer;
     out[2] = brake;
+
+    // Soft magnet AFTER labels — keeps teachers on ribbon without poisoning imitate
+    if (magnet && absLat > 0.12) {
+      const pull = Math.min(0.62, absLat * 0.42);
+      const cen = this.track.sampleAtProgress(a.progress);
+      a.x += (cen.x - a.x) * pull * 0.24;
+      a.z += (cen.z - a.z) * pull * 0.24;
+    }
   }
 
   startFresh() {
@@ -194,8 +206,8 @@ export class FastTrainer {
 
     if (a.coach) {
       // Teacher drives; NN imitates so a usable champion brain emerges
-      this.coachDrive(a, this.out);
-      a.brain.imitate(this.input, this.out[0], this.out[1], this.out[2], 0.09);
+      this.coachDrive(a, this.out, true);
+      a.brain.imitate(this.input, this.out[0], this.out[1], this.out[2], 0.11);
       throttle = this.out[0];
       steer = this.out[1];
       brake = this.out[2];
@@ -212,13 +224,14 @@ export class FastTrainer {
       brake = this.out[2];
       // Soft centerline assist when learners drift — stops mini-circle death spirals
       const latN = Math.abs(this.input[RAYS + 1]);
-      if (latN > 0.28 || this.input[Math.floor(RAYS / 2)] < 0.38) {
-        this.coachDrive(a, this.out, true); // gentle magnet + pursuit labels
-        const blend = Math.min(0.65, 0.25 + latN * 0.55);
+      const frontSense = this.input[Math.floor(RAYS / 2)];
+      if (latN > 0.22 || frontSense < 0.42) {
+        this.coachDrive(a, this.out, true);
+        const blend = Math.min(0.72, 0.28 + latN * 0.55 + (frontSense < 0.4 ? 0.15 : 0));
         throttle = throttle * (1 - blend) + this.out[0] * blend;
         steer = steer * (1 - blend) + this.out[1] * blend;
         brake = brake * (1 - blend) + this.out[2] * blend;
-        a.brain.imitate(this.input, this.out[0], this.out[1], this.out[2], 0.05);
+        a.brain.imitate(this.input, this.out[0], this.out[1], this.out[2], 0.065);
       }
       // Learners also unstick instead of spinning in place
       if (a.speed < 2.5) {
@@ -261,56 +274,59 @@ export class FastTrainer {
     a.framesAlive += 1;
 
     const prev = a.progress;
-    // Sub-step translation so high-speed cars can't tunnel past the wall face
+    // Sub-step translation so high-speed cars can't tunnel past the wall face.
+    // Keep preferProgress fixed during substeps so wrap isn't eaten mid-step.
     const moveDist = Math.abs(a.speed) * dt;
     const subSteps = Math.max(1, Math.min(10, Math.ceil(moveDist / DRIVE.wallStep)));
     const sdt = dt / subSteps;
     for (let s = 0; s < subSteps; s++) {
       a.x += Math.sin(a.yaw) * a.speed * sdt;
       a.z += Math.cos(a.yaw) * a.speed * sdt;
-      const hit = this.track.resolveWall(a.x, a.z, a.progress);
+      const hit = this.track.resolveWall(a.x, a.z, prev);
       a.x = hit.x;
       a.z = hit.z;
-      a.progress = hit.progress;
       if (hit.hit) {
         a.speed = 0;
         a.alive = false;
         a.crashed = true;
+        a.progress = hit.progress;
         a.brain.learnFromCrash(this.input, a.lastSteer, hit.progress, hit.lateral);
         this.score(a, hit.progress);
         return;
       }
     }
-    const proj = this.track.project(a.x, a.z, a.progress);
-    const wrapped = prev > 0.82 && proj.progress < 0.18;
-    const forward = proj.progress >= prev - 0.004 || wrapped;
+    const proj = this.track.project(a.x, a.z, prev);
+    // Local-window project only — global nearest snaps to parallel ribbons on folds
+    const useProg = proj.progress;
+    const wrapped = this.track.crossedFinish(prev, useProg);
+    const forward = useProg >= prev - 0.004 || wrapped;
 
     if (forward) {
       while (
         a.checkpoint < this.checkpoints.length &&
-        ((prev < this.checkpoints[a.checkpoint] && proj.progress >= this.checkpoints[a.checkpoint]) ||
+        ((prev < this.checkpoints[a.checkpoint] && useProg >= this.checkpoints[a.checkpoint]) ||
           (wrapped && this.checkpoints[a.checkpoint] > 0.85))
       ) {
         a.checkpoint += 1;
         a.lastCpFrame = this.frame;
       }
 
-      const cleared = a.checkpoint >= Math.floor(this.checkpoints.length * 0.92);
-      if (wrapped && (cleared || a.checkpoint >= this.checkpoints.length)) {
+      const cleared = a.checkpoint >= Math.floor(this.checkpoints.length * 0.85);
+      if (wrapped && (cleared || a.checkpoint >= this.checkpoints.length || prev > 0.9)) {
         a.laps += 1;
         a.checkpoint = 0;
         a.lastCpFrame = this.frame;
         a.bestProgress += 1;
         this.finishedLapThisGen = true;
       }
-      a.bestProgress = Math.max(a.bestProgress, a.laps + proj.progress);
+      a.bestProgress = Math.max(a.bestProgress, a.laps + useProg);
     }
 
     const centerBonus = 1 - Math.min(1, Math.abs(proj.lateral) / (this.track.width * 0.5));
-    a.progress = proj.progress;
+    a.progress = useProg;
     // Penalize spinning in place (high |steer| without progress gain)
     const spinPenalty = Math.abs(a.lastSteer) > 0.7 && a.speed < 6 ? 0.15 : 0;
-    this.score(a, proj.progress, centerBonus, a.speed, spinPenalty);
+    this.score(a, useProg, centerBonus, a.speed, spinPenalty);
 
     if (this.frame - a.lastCpFrame > 480) {
       a.alive = false;
@@ -388,12 +404,12 @@ export class FastTrainer {
       this.agents.find((a) => a.laps >= 1) ??
       this.agents[0];
     if (best.score > this.bestScore) this.bestScore = best.score;
-    // Coach brains were trained with a position magnet — distill a fresh prior instead
+    // Coach NNs learn under a magnet — seed a clean prior then distill this layout hard
     this.champion =
       best.coach && best.laps >= 1
         ? FastBrain.centerlineSeed(FAST_INPUTS)
         : best.brain.clone();
-    if (best.laps >= 1) this.distillChampion(this.champion);
+    if (best.laps >= 1) this.distillChampion(this.champion, best.coach ? 12 : 8);
     this.breedNext();
     this.generation += 1;
     this.finishedLapThisGen = false;
@@ -401,19 +417,19 @@ export class FastTrainer {
   }
 
   /** Supervised pass: dense poses along the ribbon → pure-pursuit labels. */
-  private distillChampion(brain: FastBrain) {
+  private distillChampion(brain: FastBrain, epochs = 7) {
     const total = Math.max(this.track.totalLength, 1);
-    const steps = 480;
-    for (let epoch = 0; epoch < 5; epoch++) {
+    const steps = 560;
+    for (let epoch = 0; epoch < epochs; epoch++) {
       for (let step = 0; step < steps; step++) {
         const progress = ((step + epoch * 37) % steps) / steps;
-        const latNoise = (((step * 3 + epoch * 5) % 11) - 5) * 0.45;
-        const yawNoise = (((step * 2 + epoch) % 9) - 4) * 0.06;
+        const latNoise = (((step * 3 + epoch * 5) % 13) - 6) * 0.5;
+        const yawNoise = (((step * 2 + epoch) % 11) - 5) * 0.07;
         const s = this.track.sampleAtProgress(progress);
         const x = s.x + s.nx * latNoise;
         const z = s.z + s.nz * latNoise;
         const yaw = Math.atan2(s.tx, s.tz) + yawNoise;
-        const speed = 6 + ((step + epoch * 4) % 10);
+        const speed = 5 + ((step + epoch * 4) % 12);
         // Sense into this.input
         for (let i = 0; i < RAYS; i++) {
           const t = i / (RAYS - 1);
@@ -444,12 +460,14 @@ export class FastTrainer {
         let err = Math.atan2(dx, dz) - yaw;
         while (err > Math.PI) err -= Math.PI * 2;
         while (err < -Math.PI) err += Math.PI * 2;
-        let steer = err * 1.55 - lateral * 0.95;
+        let steer = err * 1.65 - lateral * 1.05;
         if (steer > 1) steer = 1;
         if (steer < -1) steer = -1;
-        const brake = front < 0.28 ? 0.85 : front < 0.42 || Math.abs(err) > 0.7 ? 0.35 : 0.05;
-        const throttle = front < 0.28 ? 0.2 : Math.abs(err) > 0.7 ? 0.55 : 0.92;
-        brain.imitate(this.input, throttle, steer, brake, 0.1);
+        const brake =
+          front < 0.28 ? 0.88 : front < 0.42 || Math.abs(err) > 0.65 ? 0.38 : Math.abs(err) > 0.35 ? 0.16 : 0.04;
+        const throttle =
+          front < 0.28 ? 0.18 : Math.abs(err) > 0.65 ? 0.5 : Math.abs(err) > 0.35 ? 0.72 : 0.92;
+        brain.imitate(this.input, throttle, steer, brake, 0.12);
       }
     }
   }
@@ -484,7 +502,7 @@ export class FastTrainer {
       best.coach && best.laps >= 1
         ? FastBrain.centerlineSeed(FAST_INPUTS)
         : best.brain.clone();
-    if (best.laps >= 1) this.distillChampion(this.champion);
+    if (best.laps >= 1) this.distillChampion(this.champion, best.coach ? 12 : 8);
     const laps = best.laps;
     this.breedNext();
     this.generation += 1;

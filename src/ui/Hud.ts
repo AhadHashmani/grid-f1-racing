@@ -132,7 +132,7 @@ export class Hud {
           </div>
           <div class="mode-bar" id="mode-bar">
             <button type="button" data-mode="edit">1 · Build</button>
-            <button type="button" data-mode="train">2 · Train</button>
+            <button type="button" data-mode="train">2 · Watch Sims</button>
             <button type="button" data-mode="watch" class="locked" id="btn-watch">Watch Champ</button>
             <button type="button" data-mode="race" class="locked" id="btn-race">3 · Race</button>
           </div>
@@ -180,7 +180,7 @@ export class Hud {
 
       <div class="learn-meter hidden" id="learn-meter">
         <div class="learn-meter-top">
-          <span>Best car · lap progress</span>
+          <span>Best car · fill to unlock Race</span>
           <span id="stat-lessons">0 lessons</span>
         </div>
         <div class="learn-track">
@@ -217,12 +217,12 @@ export class Hud {
             <strong>3.</strong> Race the champion
           </p>
           <p>
-            You always see the full swarm during training. Race unlocks after a bot completes a lap.
+            Training shows every car at once. Race stays locked until one finishes a full lap.
           </p>
           <div class="overlay-actions">
             <button type="button" class="action-btn primary" data-action="start-edit">1 · Build Track</button>
-            <button type="button" class="action-btn" data-action="start-train">2 · Watch Training</button>
-            <button type="button" class="action-btn ghost" data-action="start-race">3 · Race</button>
+            <button type="button" class="action-btn" data-action="start-train">2 · Watch All Sims</button>
+            <button type="button" class="action-btn ghost" data-action="start-race">3 · Race (needs train)</button>
           </div>
         </div>
       </div>

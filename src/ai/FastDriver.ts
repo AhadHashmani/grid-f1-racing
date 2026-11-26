@@ -110,16 +110,20 @@ export function driveWithFastBrain(
   // Blend NN with pure-pursuit + soft recenter so race/watch survive custom layouts
   if (fastTrack) {
     const absLat = Math.abs(latN);
-    if (absLat > 0.18) {
-      const pull = Math.min(0.55, absLat * 0.4);
+    if (absLat > 0.14) {
+      const pull = Math.min(0.58, absLat * 0.42);
       const cen = fastTrack.sampleAtProgress(progress);
-      car.position.x += (cen.x - car.position.x) * pull * 0.22;
-      car.position.z += (cen.z - car.position.z) * pull * 0.22;
+      car.position.x += (cen.x - car.position.x) * pull * 0.24;
+      car.position.z += (cen.z - car.position.z) * pull * 0.24;
     }
     const total = Math.max(fastTrack.totalLength, 1);
-    let look = Math.max(6, Math.min(16, 6 + car.speed * 0.4));
+    let look = Math.max(6, Math.min(17, 6 + car.speed * 0.42));
     if (front < 0.5) look *= 0.45;
-    if (absLat > 0.4) look = Math.min(look, 7);
+    if (absLat > 0.38) look = Math.min(look, 7);
+    const peek = fastTrack.sampleAtProgress(progress + 12 / total);
+    const here = fastTrack.sampleAtProgress(progress);
+    const turnDot = here.tx * peek.tx + here.tz * peek.tz;
+    if (turnDot < 0.8) look = Math.min(look, 8);
     const target = fastTrack.sampleAtProgress(progress + look / total);
     const dx = target.x - car.position.x;
     const dz = target.z - car.position.z;
@@ -129,15 +133,22 @@ export function driveWithFastBrain(
     let pSteer = err * 1.55 - latN * 0.95;
     if (pSteer > 1) pSteer = 1;
     if (pSteer < -1) pSteer = -1;
-    const pBrake = front < 0.28 ? 0.85 : front < 0.42 || Math.abs(err) > 0.7 ? 0.35 : 0.05;
-    const pThr = front < 0.28 ? 0.2 : Math.abs(err) > 0.7 ? 0.55 : 0.92;
-    const assist = Math.min(0.78, 0.4 + absLat * 0.5 + (front < 0.4 ? 0.22 : 0));
+    const pBrake =
+      front < 0.28 ? 0.85 : front < 0.42 || Math.abs(err) > 0.7 || turnDot < 0.75 ? 0.36 : 0.05;
+    const pThr =
+      front < 0.28 ? 0.2 : Math.abs(err) > 0.7 || turnDot < 0.75 ? 0.52 : Math.abs(err) > 0.35 ? 0.75 : 0.92;
+    // Floor of assist so distilled champions don't pancake on hairpins
+    const assist = Math.min(
+      0.85,
+      0.48 + absLat * 0.48 + (front < 0.4 ? 0.2 : 0) + (turnDot < 0.8 ? 0.1 : 0),
+    );
     out[0] = out[0] * (1 - assist) + pThr * assist;
     out[1] = out[1] * (1 - assist) + pSteer * assist;
     out[2] = out[2] * (1 - assist) + pBrake * assist;
   }
 
   // Sub-step analog move + wall clamp (same anti-tunnel idea as training)
+  const prefer = progress;
   const moveDist = Math.abs(car.speed) * dt + DRIVE.accel * dt * dt;
   const subSteps = Math.max(1, Math.min(10, Math.ceil(moveDist / DRIVE.wallStep)));
   const sdt = dt / subSteps;
@@ -147,25 +158,25 @@ export function driveWithFastBrain(
       car.speed = Math.min(car.speed, DRIVE.frontMin + front * DRIVE.frontScale);
     }
     if (fastTrack) {
-      const after = fastTrack.resolveWall(car.position.x, car.position.z, progress);
+      const after = fastTrack.resolveWall(car.position.x, car.position.z, prefer);
       car.position.x = after.x;
       car.position.z = after.z;
-      progress = after.progress;
-      car.lastProgress = after.progress;
       car.syncMesh();
-      if (after.hit) {
+      if (after.hit && after.breach) {
+        // Breach past asphalt face: DNF so cars never phase through walls.
         car.speed = 0;
         car.alive = false;
         car.setGhost(true);
+        car.lastProgress = after.progress;
         return;
       }
     } else if (track.resolveWall(car.position, car.lastProgress)) {
-      car.speed = 0;
       car.syncMesh();
-      car.alive = false;
-      car.setGhost(true);
-      return;
     }
+  }
+  if (fastTrack) {
+    const guided = fastTrack.project(car.position.x, car.position.z, prefer);
+    car.lastProgress = guided.progress;
   }
 }
 

@@ -307,7 +307,7 @@ export class Game {
     if (mode === "train") {
       this.beginTraining(this.trackDirty);
       this.sensorRays.setVisible(true);
-      this.hud.showBanner("WATCH EVERY CAR LEARN");
+      this.hud.showBanner("ALL SIMULATIONS · WATCH THE SWARM");
       return;
     }
 
@@ -473,15 +473,15 @@ export class Game {
 
   private updateTraining() {
     // Full swarm visible from overview — every simulation at once
-    const result = this.trainer.liveStep(3);
+    const result = this.trainer.liveStep(4);
     this.syncVisualFromFast();
 
     if (result.justLapped) {
       this.refreshReadyState();
-      this.hud.showBanner(`LAP DONE · RACE UNLOCKED`, 2200);
+      this.hud.showBanner(`LAP DONE · RACE UNLOCKED`, 2800);
     } else if (result.generationDone) {
       this.refreshReadyState();
-      this.hud.showBanner(`GEN ${result.generation} · KEEP WATCHING`, 900);
+      this.hud.showBanner(`GEN ${result.generation} · SWARM STILL LEARNING`, 1100);
     }
   }
 

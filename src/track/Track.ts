@@ -444,14 +444,25 @@ export class Track {
     let best = 0;
     let bestScore = Infinity;
     const total = Math.max(this.totalLength, 1);
-    for (let i = 0; i < this.samples.length; i++) {
+    const n = this.samples.length;
+    const consider: number[] = [];
+    if (preferProgress != null && n > 8) {
+      const center = Math.floor((((preferProgress % 1) + 1) % 1) * n) % n;
+      const radius = Math.max(12, Math.floor(n * 0.08));
+      for (let k = -radius; k <= radius; k++) {
+        consider.push((center + k + n * 4) % n);
+      }
+    } else {
+      for (let i = 0; i < n; i++) consider.push(i);
+    }
+    for (const i of consider) {
       const sample = this.samples[i];
       let d = position.distanceToSquared(sample.position);
       if (preferProgress != null) {
         const p = sample.distance / total;
         let dp = Math.abs(p - preferProgress);
         if (dp > 0.5) dp = 1 - dp;
-        d += dp * dp * 140;
+        d += dp * dp * 400;
       }
       if (d < bestScore) {
         bestScore = d;
@@ -479,6 +490,12 @@ export class Track {
     position.x = sample.position.x + sample.normal.x * lat;
     position.z = sample.position.z + sample.normal.z * lat;
     return true;
+  }
+
+  /** S/F wrap — preferProgress can stick near 1.0 on folded finishes. */
+  crossedFinish(prevProgress: number, nextProgress: number): boolean {
+    if (prevProgress > 0.78 && nextProgress < 0.22) return true;
+    return nextProgress - prevProgress < -0.55;
   }
 
   /**

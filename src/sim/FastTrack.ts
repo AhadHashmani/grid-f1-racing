@@ -131,18 +131,38 @@ export class FastTrack {
   } {
     let best = 0;
     let bestScore = Infinity;
-    const idxs = this.candidateIndices(x, z);
     const total = Math.max(this.totalLength, 1);
+    const n = this.samples.length;
+
+    // When we know lap progress, ONLY search a local ribbon window.
+    // Soft bias alone still snaps to parallel segments on folded maps.
+    let idxs: number[];
+    if (preferProgress != null && n > 8) {
+      const center = Math.floor((((preferProgress % 1) + 1) % 1) * n) % n;
+      const radius = Math.max(12, Math.floor(n * 0.08));
+      idxs = [];
+      for (let k = -radius; k <= radius; k++) {
+        idxs.push((center + k + n * 4) % n);
+      }
+      // Always include spatial neighbors as a fallback near S/F
+      for (const i of this.candidateIndices(x, z)) {
+        const p = this.samples[i].distance / total;
+        let dp = Math.abs(p - preferProgress);
+        if (dp > 0.5) dp = 1 - dp;
+        if (dp < 0.14) idxs.push(i);
+      }
+    } else {
+      idxs = this.candidateIndices(x, z);
+    }
+
     for (const i of idxs) {
       const s = this.samples[i];
       let d = (s.x - x) * (s.x - x) + (s.z - z) * (s.z - z);
-      // On folded / edited maps, prefer the sample that continues along the lap
       if (preferProgress != null) {
         const p = s.distance / total;
         let dp = Math.abs(p - preferProgress);
         if (dp > 0.5) dp = 1 - dp;
-        // Soft bias (~3m equiv) so we don't snap to a parallel ribbon behind us
-        d += dp * dp * 140;
+        d += dp * dp * 400;
       }
       if (d < bestScore) {
         bestScore = d;
@@ -151,7 +171,6 @@ export class FastTrack {
     }
     const s = this.samples[best];
     const lateral = (x - s.x) * s.nx + (z - s.z) * s.nz;
-    // Impassable walls sit on the asphalt edge — car body must stay inside
     return {
       progress: s.distance / total,
       index: best,
@@ -163,23 +182,35 @@ export class FastTrack {
   }
 
   /**
-   * Clamp to the inner wall face. Returns hit=true when the pose was outside
-   * (caller should treat as a crash so cars never visually phase through).
+   * Clamp to the driveable limit. hit=true when outside car clearance;
+   * breach=true when past the asphalt face (true wall phase — race kills on this).
    */
   resolveWall(
     x: number,
     z: number,
     preferProgress?: number,
-  ): { x: number; z: number; progress: number; lateral: number; hit: boolean; tx: number; tz: number } {
+  ): {
+    x: number;
+    z: number;
+    progress: number;
+    lateral: number;
+    hit: boolean;
+    breach: boolean;
+    tx: number;
+    tz: number;
+  } {
     const proj = this.project(x, z, preferProgress);
     const limit = driveHalf(this.width);
-    if (Math.abs(proj.lateral) <= limit) {
+    const face = wallFace(this.width);
+    const absLat = Math.abs(proj.lateral);
+    if (absLat <= limit) {
       return {
         x,
         z,
         progress: proj.progress,
         lateral: proj.lateral,
         hit: false,
+        breach: false,
         tx: proj.tx,
         tz: proj.tz,
       };
@@ -192,6 +223,7 @@ export class FastTrack {
       progress: proj.progress,
       lateral: proj.lateral,
       hit: true,
+      breach: absLat >= face,
       tx: proj.tx,
       tz: proj.tz,
     };
@@ -241,6 +273,18 @@ export class FastTrack {
       }
     }
     return this.samples[best];
+  }
+
+  /**
+   * Detect S/F wrap when preferProgress bias would otherwise stick near 1.0
+   * on folded start/finish geometry.
+   */
+  crossedFinish(prevProgress: number, nextProgress: number): boolean {
+    if (prevProgress > 0.78 && nextProgress < 0.22) return true;
+    // Large backward jump under progress guidance = wrapped past S/F
+    let dp = nextProgress - prevProgress;
+    if (dp < -0.55) return true;
+    return false;
   }
 
   /** Lane = lateral offset; along = sample index offset so the swarm fans out. */
