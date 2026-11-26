@@ -275,8 +275,26 @@ canvas {
 
 .edit-coach-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.edit-coach-actions > .action-btn {
+  min-height: 3rem;
+  width: 100%;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+}
+
+.edit-coach-secondary {
+  display: flex;
   gap: 0.45rem;
+}
+
+.edit-coach-secondary .action-btn {
+  flex: 1;
+  min-height: 2.5rem;
 }
 
 .mode-edit .help {

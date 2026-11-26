@@ -165,9 +165,11 @@ export class Hud {
           <li>Then <strong>Train</strong> — watch every car learn together</li>
         </ol>
         <div class="edit-coach-actions">
-          <button type="button" class="action-btn" data-action="random-track">Random Layout</button>
-          <button type="button" class="action-btn" data-action="reset-track">Reset</button>
           <button type="button" class="action-btn primary" data-action="start-train">Train on This Track</button>
+          <div class="edit-coach-secondary">
+            <button type="button" class="action-btn" data-action="random-track">Random Layout</button>
+            <button type="button" class="action-btn" data-action="reset-track">Reset</button>
+          </div>
         </div>
       </div>
 
