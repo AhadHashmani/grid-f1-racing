@@ -8,6 +8,12 @@ if (!app) {
 // Instant first paint while Three.js chunk evaluates
 app.innerHTML = `<div class="boot">GR<span>ID</span><small>Loading circuit…</small></div>`;
 
-const { Game } = await import("./game/Game");
-app.innerHTML = "";
-new Game(app);
+try {
+  const { Game } = await import("./game/Game");
+  app.replaceChildren(); // clear boot only after module loads
+  new Game(app);
+} catch (err) {
+  console.error(err);
+  const msg = err instanceof Error ? err.message : String(err);
+  app.innerHTML = `<div class="boot">GR<span>ID</span><small>Failed to start — ${msg}</small></div>`;
+}

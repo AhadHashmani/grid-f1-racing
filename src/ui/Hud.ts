@@ -32,7 +32,11 @@ export class Hud {
     this.root.id = "ui";
     parent.appendChild(this.root);
     this.renderShell();
+    // Capture on the UI root AND document so automation / odd hit-targets still fire
+    this.root.addEventListener("pointerup", this.onRootPointer, true);
     this.root.addEventListener("click", this.onRootPointer, true);
+    document.addEventListener("pointerup", this.onDocPointer, true);
+    document.addEventListener("click", this.onDocPointer, true);
   }
 
   setHandlers(
@@ -70,43 +74,66 @@ export class Hud {
   }
 
   private fireAction(action: string) {
+    if (!this.onAction) return;
     const now = performance.now();
-    if (now - this.lastFireAt < 120) return;
+    if (now - this.lastFireAt < 160) return;
     this.lastFireAt = now;
-    this.onAction?.(action);
+    this.onAction(action);
   }
 
   private fireMode(mode: GameMode) {
+    if (!this.onMode) return;
     const now = performance.now();
-    if (now - this.lastFireAt < 120) return;
+    if (now - this.lastFireAt < 160) return;
     this.lastFireAt = now;
-    this.onMode?.(mode);
+    this.onMode(mode);
   }
 
-  /** Single delegated click path — avoids pointerup+click double-fire and dead buttons. */
-  private onRootPointer = (event: Event) => {
-    if (event.type !== "click") return;
+  private handleUiEvent(event: Event): boolean {
     const target = event.target as HTMLElement | null;
-    if (!target?.closest) return;
-
+    if (!target?.closest) return false;
+    // Only handle events that originate inside our UI (or hit a data-* control)
     const actionBtn = target.closest<HTMLElement>("[data-action]");
-    if (actionBtn?.dataset.action) {
+    if (actionBtn?.dataset.action && this.root.contains(actionBtn)) {
       event.preventDefault();
       event.stopPropagation();
       this.fireAction(actionBtn.dataset.action);
-      return;
+      return true;
     }
-
     const modeBtn = target.closest<HTMLElement>("[data-mode]");
-    if (modeBtn?.dataset.mode) {
+    if (modeBtn?.dataset.mode && this.root.contains(modeBtn)) {
       event.preventDefault();
       event.stopPropagation();
       this.fireMode(modeBtn.dataset.mode as GameMode);
+      return true;
     }
+    return false;
+  }
+
+  private onRootPointer = (event: Event) => {
+    this.handleUiEvent(event);
+  };
+
+  private onDocPointer = (event: Event) => {
+    // Backup path when the UI root misses the event (pointer-events quirks)
+    this.handleUiEvent(event);
   };
 
   private bindButtons() {
-    // No-op kept for call sites after dynamic HTML inject; delegation handles clicks.
+    this.root.querySelectorAll<HTMLElement>("[data-action], [data-mode]").forEach((el) => {
+      if ((el as HTMLElement & { __gridBound?: boolean }).__gridBound) return;
+      (el as HTMLElement & { __gridBound?: boolean }).__gridBound = true;
+      const activate = (event: Event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const action = el.dataset.action;
+        const mode = el.dataset.mode;
+        if (action) this.fireAction(action);
+        else if (mode) this.fireMode(mode as GameMode);
+      };
+      el.addEventListener("pointerup", activate);
+      el.addEventListener("click", activate);
+    });
   }
 
   private renderShell() {

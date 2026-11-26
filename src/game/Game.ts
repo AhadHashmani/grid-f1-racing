@@ -60,6 +60,7 @@ export class Game {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.domElement.style.zIndex = "0";
     this.renderer.domElement.style.position = "absolute";
+    this.renderer.domElement.style.pointerEvents = "none";
     container.appendChild(this.renderer.domElement);
 
     this.chase = new ChaseCamera(container.clientWidth / container.clientHeight);
@@ -104,9 +105,15 @@ export class Game {
 
     this.fitOverview();
     this.editor.setEnabled(false);
-    this.renderer.domElement.style.pointerEvents = "none";
+    this.setCanvasInteractive(false);
     this.hud.setMode("menu");
     this.tick();
+  }
+
+  /** Canvas only receives pointers in edit/race — never under menu/train overlays. */
+  private setCanvasInteractive(on: boolean) {
+    this.renderer.domElement.style.pointerEvents = on ? "auto" : "none";
+    this.container.classList.toggle("canvas-interactive", on);
   }
 
   private buildWorld() {
@@ -236,7 +243,7 @@ export class Game {
     this.mode = "menu";
     this.clearCars();
     this.editor.setEnabled(false);
-    this.renderer.domElement.style.pointerEvents = "none";
+    this.setCanvasInteractive(false);
     this.hud.setMode("menu");
     this.hud.showResult(
       "Train first",
@@ -259,7 +266,7 @@ export class Game {
     this.hud.hideOverlay();
     this.hud.setMode("train");
     this.editor.setEnabled(false);
-    this.renderer.domElement.style.pointerEvents = "none"; // overview only — watch all cars
+    this.setCanvasInteractive(false); // overview only — watch all cars
     this.buildVisualSwarm();
     this.fitOverview();
     this.refreshReadyState();
@@ -286,7 +293,7 @@ export class Game {
 
     this.mode = mode;
     this.hud.setMode(mode);
-    this.renderer.domElement.style.pointerEvents = mode === "menu" || mode === "train" ? "none" : "auto";
+    this.setCanvasInteractive(mode === "edit" || mode === "race" || mode === "watch");
     this.clearCars();
 
     if (mode === "menu" || mode === "edit") {
@@ -294,12 +301,12 @@ export class Game {
       this.refreshReadyState();
       if (mode === "edit") {
         this.setEditCamera();
-        this.renderer.domElement.style.pointerEvents = "auto";
+        this.setCanvasInteractive(true);
         this.hud.showBanner("DRAG ORANGE BALLS · OR RANDOM");
       }
       if (mode === "menu") {
         this.hud.setMode("menu");
-        this.renderer.domElement.style.pointerEvents = "none";
+        this.setCanvasInteractive(false);
       }
       return;
     }
